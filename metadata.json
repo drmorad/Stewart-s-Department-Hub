@@ -1,0 +1,5 @@
+{
+  "name": "Steward's Cleaning Schedule Generator",
+  "description": "An AI-powered application to generate a comprehensive cleaning schedule for a steward department, covering all kitchen tools and equipment for preparation, cooking, and live buffets.",
+  "requestFramePermissions": []
+}
