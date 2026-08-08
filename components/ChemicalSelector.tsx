@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import type { Chemical } from '../types';
 import { t } from '../i18n';
@@ -15,89 +16,56 @@ const ChemicalSelector: React.FC<ChemicalSelectorProps> = ({ chemicals, currentC
 
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
-      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
+      if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) setIsOpen(false);
     }
     document.addEventListener("mousedown", handleClickOutside);
-    return () => {
-      document.removeEventListener("mousedown", handleClickOutside);
-    };
+    return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [wrapperRef]);
   
-  const handleSelect = (id: string | null) => {
-    onSelect(id);
-    setIsOpen(false);
-  }
-
-  if (chemicals.length === 0) {
-      return null;
-  }
+  if (chemicals.length === 0) return null;
 
   return (
     <div className="relative" ref={wrapperRef}>
-      <div className="relative group">
-         <button
-            onClick={() => setIsOpen(!isOpen)}
-            className={`cursor-pointer text-lg ${!selectedChemical ? 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300' : ''}`}
-            style={{ color: selectedChemical ? (selectedChemical.color || '#0d9488') : undefined }}
-            aria-label={t('chemicalSelector.selectChemical')}
-          >
-            <i className="fas fa-flask"></i>
-         </button>
-
-         {selectedChemical && (
-            <div className="absolute bottom-full mb-2 w-64 bg-gray-800 text-white text-xs rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none z-20 -translate-x-1/2 start-1/2 dark:bg-gray-100 dark:text-gray-800 shadow-lg">
-                {selectedChemical.image && (
-                    <img src={selectedChemical.image} alt={selectedChemical.name} className="w-full h-32 object-contain rounded-t-lg bg-white dark:bg-gray-900 p-1" />
-                )}
-                <div className="p-3">
-                    <h4 className="font-bold text-base mb-1 flex items-center gap-2">
-                    <span className="w-3 h-3 rounded-full inline-block border border-gray-400" style={{ backgroundColor: selectedChemical.color || '#cccccc' }}></span>
-                    <span>{selectedChemical.name}</span>
-                    </h4>
-                    <p className="mb-2"><strong className="font-semibold">{t('chemicalSelector.ingredient')}:</strong> {selectedChemical.activeIngredient || t('na')}</p>
-                    <p className="whitespace-pre-wrap"><strong className="font-semibold">{t('chemicalSelector.application')}:</strong> {selectedChemical.application}</p>
-                </div>
-                <div className="absolute start-1/2 -translate-x-1/2 top-full w-0 h-0 border-x-8 border-x-transparent border-t-8 border-t-gray-800 dark:border-t-gray-100"></div>
-            </div>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all border shadow-sm ${!selectedChemical ? 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-300 hover:border-blue-500 hover:text-blue-500' : 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'}`}
+        aria-label={t('chemicalSelector.selectChemical')}
+      >
+         {selectedChemical?.image ? (
+             <img src={selectedChemical.image} alt={selectedChemical.name} className="w-full h-full object-cover rounded-lg" />
+         ) : (
+            <i className="fas fa-flask text-[10px]" style={{ color: selectedChemical ? (selectedChemical.color || 'currentColor') : undefined }}></i>
          )}
-      </div>
+      </button>
 
       {isOpen && (
-        <div className="absolute start-0 mt-2 w-60 bg-white rounded-md shadow-lg z-30 border dark:bg-gray-800 dark:border-gray-600">
-            <ul className="max-h-60 overflow-auto py-1">
+        <div className="absolute right-0 sm:left-0 mt-2 w-64 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl shadow-2xl z-50 overflow-hidden animate-fade-in">
+            <div className="p-3 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/50">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Available Reagents</span>
+            </div>
+            <ul className="max-h-72 overflow-y-auto custom-scrollbar">
                 <li>
                     <button 
-                        onClick={() => handleSelect(null)}
-                        className="w-full text-start px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700"
+                        onClick={() => { onSelect(null); setIsOpen(false); }}
+                        className="w-full text-left p-3.5 text-[10px] font-bold text-red-500 hover:bg-red-50 transition-all border-b border-slate-50 dark:border-slate-800 uppercase tracking-wider"
                     >
-                        <i className="fas fa-times-circle me-2 text-red-500"></i>
-                        {t('chemicalSelector.removeAssociation')}
+                        <i className="fas fa-circle-xmark me-2"></i> {t('chemicalSelector.removeAssociation')}
                     </button>
                 </li>
                 {chemicals.map(chemical => (
                     <li key={chemical.id}>
                         <button
-                            onClick={() => handleSelect(chemical.id)}
-                            className={`w-full text-start px-4 py-2 text-sm ${currentChemicalId === chemical.id ? 'font-bold bg-blue-50 dark:bg-blue-900/50' : ''} text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-gray-700`}
+                            onClick={() => { onSelect(chemical.id); setIsOpen(false); }}
+                            className={`w-full text-left p-3.5 transition-all border-b border-slate-50 dark:border-slate-800 flex gap-3 items-center group ${currentChemicalId === chemical.id ? 'bg-blue-50 dark:bg-blue-900/20' : 'hover:bg-slate-50 dark:hover:bg-slate-800'}`}
                         >
-                           <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 flex-shrink-0 bg-gray-100 dark:bg-gray-700 rounded-md flex items-center justify-center overflow-hidden">
-                                    {chemical.image ? (
-                                        <img src={chemical.image} alt={chemical.name} className="h-full w-full object-cover" />
-                                    ) : (
-                                        <i className="fas fa-flask text-lg text-gray-400"></i>
-                                    )}
-                                </div>
-                                <div className="flex-grow">
-                                    <div className="flex items-center gap-2">
-                                        <span className="w-3 h-3 rounded-full inline-block border dark:border-gray-500" style={{ backgroundColor: chemical.color || '#cccccc' }}></span>
-                                        <span className="font-medium">{chemical.name}</span>
-                                    </div>
-                                    <span className="block text-xs text-gray-500 dark:text-gray-400 truncate">{chemical.usedFor}</span>
-                                </div>
-                           </div>
+                            <div className="w-9 h-9 bg-slate-50 dark:bg-slate-800 rounded-xl border border-slate-200 dark:border-slate-700 flex-shrink-0 relative overflow-hidden group-hover:border-blue-500 shadow-sm transition-all">
+                                {chemical.image ? <img src={chemical.image} className="w-full h-full object-cover" /> : <i className="fas fa-flask text-slate-200 absolute inset-0 m-auto h-fit w-fit"></i>}
+                                <div className="absolute top-0 left-0 w-full h-0.5" style={{ backgroundColor: chemical.color }}></div>
+                            </div>
+                            <div className="min-w-0">
+                                <span className={`block font-bold text-[11px] uppercase tracking-tight truncate ${currentChemicalId === chemical.id ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-white'}`}>{chemical.name}</span>
+                                <span className="block text-[9px] text-slate-400 font-medium truncate italic">{chemical.usedFor}</span>
+                            </div>
                         </button>
                     </li>
                 ))}

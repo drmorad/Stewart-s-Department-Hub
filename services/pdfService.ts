@@ -1,14 +1,8 @@
+
 import type { CleaningSchedulePlan, ChecklistState, Chemical, TaskDetail, ActiveFilters } from '../types';
 import { Language } from '../i18n';
-
-// CRITICAL FIX REQUIRED: You MUST replace the following placeholder string with the ACTUAL, COMPLETE, and VALID base64 encoded data of the Amiri font file.
-// The current placeholder is intentionally minimal to prevent "Failed to execute 'atob' on 'Window'" errors,
-// but it is NOT the actual font data and will result in incorrect Arabic rendering in PDFs.
-// To get the correct base64 string:
-// 1. Obtain the Amiri-Regular.ttf font file.
-// 2. Convert it to a base64 string using an online tool or a script (e.g., `base64 -w 0 Amiri-Regular.ttf` on Linux/macOS).
-// 3. Paste the ENTIRE resulting base64 string here, ensuring no data URI prefix (like 'data:font/ttf;base64,') is included, as `cleanBase64` handles that.
-const AMIRI_FONT_BASE64 = 'AAEAAAARAQAABAAQR0RFRgQsAASAAAAACAAmACoAAAAMAAIAAAABAAD/+AEA'; // <<< REPLACE THIS ENTIRE STRING WITH YOUR ACTUAL FONT DATA >>>
+import { PPE_OPTIONS } from '../constants';
+import { t } from '../i18n';
 
 // Declare the global jspdf object provided by the script tag in index.html.
 declare global {
@@ -18,52 +12,24 @@ declare global {
 }
 
 /**
- * Cleans a base64 string by removing data URI prefixes (e.g., 'data:mime/type;base64,') and trimming whitespace.
- * This ensures that functions like `atob()` receive a pure base64 encoded string.
- * @param base64String The base64 string, potentially with a data URI prefix.
- * @returns A cleaned base64 string.
- */
-const cleanBase64 = (base64String: string | null | undefined): string => {
-  if (!base64String) return '';
-  let cleaned = base64String.trim();
-  const dataUriPrefixMatch = cleaned.match(/^data:[^;]+;base64,/);
-  if (dataUriPrefixMatch) {
-    cleaned = cleaned.substring(dataUriPrefixMatch[0].length);
-  }
-  return cleaned;
-};
-
-/**
  * Sanitizes a string for PDF rendering.
- * This regex allows basic Latin characters, Arabic characters, and essential whitespace.
- * @param text The string to sanitize.
- * @returns A sanitized string.
  */
 const sanitizeForPdf = (text: string | null | undefined): string => {
   if (!text) return '';
-  // Whitelist: common punctuation, numbers, Latin, Arabic, and whitespace.
+  // Basic character sanitation for jsPDF
   return text.replace(/[^\u0009\u000A\u000D\u0020-\u007E\u0600-\u06FF\u0750-\u077F]/g, '');
 };
 
-
 /**
  * Adds a standardized header to the current page of the PDF.
- * @param doc The jsPDF instance.
- * @param headerText The main header text.
- * @param subHeaderText The subtitle.
- * @param logoBase64 The base64-encoded logo, or null.
- * @param language The current language ('en' or 'ar').
  */
 const addHeader = (doc: any, headerText: string, subHeaderText: string, logoBase64: string | null, language: Language) => {
     const pageWidth = doc.internal.pageSize.getWidth();
     const margin = 15;
-    const isArabic = language === 'ar';
-    const font = isArabic ? 'Amiri' : 'helvetica';
+    const font = 'helvetica';
 
     if (logoBase64) {
         try {
-            // For doc.addImage, typically the full data URI is expected.
-            // The `cleanBase64` function is more for raw base64 strings passed to functions expecting pure base64.
             const img = new Image();
             img.src = logoBase64;
             const imgFormat = (logoBase64.substring(logoBase64.indexOf('/') + 1, logoBase64.indexOf(';'))).toUpperCase();
@@ -72,10 +38,8 @@ const addHeader = (doc: any, headerText: string, subHeaderText: string, logoBase
             if (validFormats.includes(imgFormat)) {
                 const logoHeight = 15;
                 const logoWidth = (img.width * logoHeight) / img.height;
-                const logoX = isArabic ? pageWidth - margin - logoWidth : margin;
+                const logoX = language === 'ar' ? pageWidth - margin - logoWidth : margin;
                 doc.addImage(logoBase64, imgFormat, logoX, margin - 7, logoWidth, logoHeight);
-            } else {
-                console.warn(`Unsupported image format for logo: ${imgFormat}`);
             }
         } catch (e) {
             console.error("Error adding logo to PDF:", e);
@@ -92,24 +56,21 @@ const addHeader = (doc: any, headerText: string, subHeaderText: string, logoBase
 
     const today = new Date();
     const options: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric' };
-    const formattedDate = today.toLocaleDateString(isArabic ? 'ar-SA' : 'en-US', options);
-    const dateText = isArabic ? `تاريخ الإنشاء: ${formattedDate}` : `Generated on: ${formattedDate}`;
+    const formattedDate = today.toLocaleDateString(language === 'ar' ? 'ar-SA' : 'en-US', options);
+    const dateText = language === 'ar' ? `تاريخ الإنشاء: ${formattedDate}` : `Generated on: ${formattedDate}`;
     doc.setFontSize(9);
     doc.setTextColor(150);
     doc.text(dateText, pageWidth / 2, 30, { align: 'center', lang: language });
 };
 
 /**
- * Adds a standardized "Page X of Y" footer to all pages of the PDF.
- * @param doc The jsPDF instance.
- * @param language The current language ('en' or 'ar').
+ * Adds a standardized footer to all pages of the PDF.
  */
 const addFooter = (doc: any, language: Language) => {
     const pageCount = (doc.internal as any).getNumberOfPages();
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
-    const isArabic = language === 'ar';
-    const font = isArabic ? 'Amiri' : 'helvetica';
+    const font = 'helvetica';
     
     doc.setFont(font, 'normal');
     doc.setFontSize(9);
@@ -117,16 +78,58 @@ const addFooter = (doc: any, language: Language) => {
     
     for (let i = 1; i <= pageCount; i++) {
         doc.setPage(i);
-        const footerText = isArabic ? `صفحة ${i} من ${pageCount}` : `Page ${i} of ${pageCount}`;
-        doc.text(
-            footerText,
-            pageWidth / 2,
-            pageHeight - 10,
-            { align: 'center', lang: language }
-        );
+        const footerText = language === 'ar' ? `صفحة ${i} من ${pageCount}` : `Page ${i} of ${pageCount}`;
+        doc.text(footerText, pageWidth / 2, pageHeight - 10, { align: 'center', lang: language });
     }
 };
 
+const getTaskNameById = (id: string, schedule: CleaningSchedulePlan): string | null => {
+    for (const category of schedule.schedule) {
+        for (const item of category.items) {
+            if (item.daily.id === id) return item.daily.task;
+            if (item.weekly.id === id) return item.weekly.task;
+            if (item.monthly.id === id) return item.monthly.task;
+        }
+    }
+    return null;
+};
+
+const isTaskValid = (task: TaskDetail) => task.task && task.task.trim() && task.task.trim().toLowerCase() !== 'n/a';
+
+const appendChemicalList = (doc: any, chemicals: Chemical[], language: Language, startY: number, customHeader: string) => {
+  doc.addPage();
+  const isArabic = language === 'ar';
+  const headEn = ['Chemical Name', 'Active Ingredient', 'Used For', 'Application', 'Required PPE'];
+  const headAr = ['معدات الوقاية', 'الاستخدام', 'تستخدم لـ', 'المكون النشط', 'اسم المادة'];
+  const tableHead = isArabic ? headAr : headEn;
+
+  const tableBody = chemicals.map(chem => {
+    const ppeGear = (chem.ppeList || []).map(id => {
+      const opt = PPE_OPTIONS.find(o => o.id === id);
+      return opt ? t(opt.label) : id;
+    }).join(', ') || 'N/A';
+
+    const row = [
+      sanitizeForPdf(chem.name),
+      sanitizeForPdf(chem.activeIngredient) || 'N/A',
+      sanitizeForPdf(chem.usedFor),
+      sanitizeForPdf(chem.application),
+      sanitizeForPdf(ppeGear)
+    ];
+    return isArabic ? row.reverse() : row;
+  });
+
+  (doc as any).autoTable({
+    head: [tableHead],
+    body: tableBody,
+    startY: 40,
+    theme: 'grid',
+    headStyles: { fillColor: [52, 152, 219], textColor: 255, fontStyle: 'bold', halign: isArabic ? 'right' : 'left' },
+    styles: { fontSize: 8, cellPadding: 2, halign: isArabic ? 'right' : 'left', overflow: 'linebreak' },
+    didDrawPage: () => addHeader(doc, customHeader, isArabic ? "ملخص المواد الكيميائية" : "Chemical Master Summary", null, language),
+    margin: { top: 40, bottom: 20, left: 10, right: 10 }
+  });
+};
 
 export const exportScheduleToPDF = (
   schedulePlan: CleaningSchedulePlan,
@@ -137,19 +140,16 @@ export const exportScheduleToPDF = (
   logoBase64: string | null,
   language: Language,
   exportScope: 'full' | 'filtered',
-  rowFilters: ActiveFilters
+  rowFilters: ActiveFilters,
+  orientation: 'p' | 'l' = 'p',
+  includeNotes: boolean = true,
+  includeChemicals: boolean = false
 ) => {
+  if (!window.jspdf) return;
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-  const autoTable = (doc as any).autoTable;
+  const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
   const isArabic = language === 'ar';
-  
-  if (isArabic) {
-    doc.addFileToVFS('Amiri-Regular.ttf', cleanBase64(AMIRI_FONT_BASE64)); // Apply cleanBase64 here
-    doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
-  }
-  const font = isArabic ? 'Amiri' : 'helvetica';
-  doc.setFont(font);
+  doc.setFont('helvetica');
 
   const headEnParts = { item: 'Item / Equipment', daily: 'Daily Tasks', weekly: 'Weekly Tasks', monthly: 'Monthly Tasks' };
   const headArParts = { item: 'العنصر / المعدات', daily: 'المهام اليومية', weekly: 'المهام الأسبوعية', monthly: 'المهام الشهرية' };
@@ -161,37 +161,45 @@ export const exportScheduleToPDF = (
   if (columnFilters.monthly) tableHead.push(parts.monthly);
   if (isArabic) tableHead.reverse();
 
-
-  const tableRows: any[] = [];
-  const categoryColSpan = tableHead.length;
-
   const formatTaskContent = (taskDetail: TaskDetail) => {
-    const task = sanitizeForPdf(taskDetail.task);
-    
-    if (!task.trim() || task.trim().toLowerCase() === 'n/a') {
-      return 'N/A';
-    }
+    try {
+        const task = sanitizeForPdf(taskDetail.task);
+        if (!task.trim() || task.trim().toLowerCase() === 'n/a') return 'N/A';
 
-    let result = task;
+        let result = task;
+        if (includeNotes) {
+            const notes = sanitizeForPdf(taskDetail.notes);
+            if (notes && notes.trim() && notes.trim().toLowerCase() !== 'n/a') {
+                const notesLabel = isArabic ? 'ملاحظات' : 'Notes';
+                result += `\n(${notesLabel}: ${notes})`;
+            }
+        }
 
-    const notes = sanitizeForPdf(taskDetail.notes);
-    if (notes && notes.trim() && notes.trim().toLowerCase() !== 'n/a') {
-        const notesLabel = isArabic ? 'ملاحظات' : 'Notes';
-        result += `\n(${notesLabel}: ${notes})`;
+        if (taskDetail.chemicalId) {
+          const chemical = chemicals.find(c => c.id === taskDetail.chemicalId);
+          if (chemical) {
+            const chemLabel = isArabic ? 'المادة الكيميائية' : 'Chemical';
+            result += `\n\n${chemLabel}: ${sanitizeForPdf(chemical.name)}`;
+          }
+        }
+        
+        if (taskDetail.prerequisites && taskDetail.prerequisites.length > 0) {
+            const prereqNames = taskDetail.prerequisites
+                .map(id => getTaskNameById(id, schedulePlan))
+                .filter(name => name !== null) as string[];
+            if (prereqNames.length > 0) {
+                const depsLabel = isArabic ? 'يتطلب' : 'Requires';
+                result += `\n\n[${depsLabel}: ${sanitizeForPdf(prereqNames.join(', '))}]`;
+            }
+        }
+        return result;
+    } catch (err) {
+        console.error("PDF Task Content Formatting Error:", err);
+        return "Content Error";
     }
-
-    if (taskDetail.chemicalId) {
-      const chemical = chemicals.find(c => c.id === taskDetail.chemicalId);
-      if (chemical) {
-        const chemLabel = isArabic ? 'المادة الكيميائية' : 'Chemical';
-        result += `\n\n${chemLabel}: ${sanitizeForPdf(chemical.name)}`;
-      }
-    }
-    return result;
   };
 
-  const isTaskValid = (task: TaskDetail) => task.task && task.task.trim() && task.task.trim().toLowerCase() !== 'n/a';
-
+  const tableRows: any[] = [];
   const scheduleData = exportScope === 'filtered' 
     ? schedulePlan.schedule.map(category => ({
         ...category,
@@ -207,7 +215,7 @@ export const exportScheduleToPDF = (
   scheduleData.forEach(category => {
     tableRows.push([{ 
       content: sanitizeForPdf(category.category), 
-      colSpan: categoryColSpan, 
+      colSpan: tableHead.length, 
       styles: { fontStyle: 'bold', fillColor: [230, 230, 230], textColor: [44, 62, 80], halign: 'center' } 
     }]);
     
@@ -216,57 +224,30 @@ export const exportScheduleToPDF = (
       if (columnFilters.daily) rowData.push(formatTaskContent(item.daily));
       if (columnFilters.weekly) rowData.push(formatTaskContent(item.weekly));
       if (columnFilters.monthly) rowData.push(formatTaskContent(item.monthly));
-      
       tableRows.push(isArabic ? rowData.reverse() : rowData);
     });
   });
   
-  const taskColCount = (columnFilters.daily ? 1 : 0) + (columnFilters.weekly ? 1 : 0) + (columnFilters.monthly ? 1 : 0);
-  const itemColWidth = 40;
-  
-  const columnStyles: { [key: number]: any } = {
-    [isArabic ? tableHead.length - 1 : 0]: { fontStyle: 'bold', cellWidth: itemColWidth },
-  };
-  
-  // Set equal width for task columns if there are any
-  if (taskColCount > 0) {
-      const availableWidth = doc.internal.pageSize.getWidth() - 20; // page width minus margins
-      const remainingWidth = availableWidth - itemColWidth;
-      const taskColWidth = remainingWidth / taskColCount;
-      
-      let currentColIndex = isArabic ? tableHead.length - 2 : 1;
-      const increment = isArabic ? -1 : 1;
-
-      if (columnFilters.daily) {
-        columnStyles[currentColIndex] = { cellWidth: taskColWidth };
-        currentColIndex += increment;
-      }
-      if (columnFilters.weekly) {
-        columnStyles[currentColIndex] = { cellWidth: taskColWidth };
-        currentColIndex += increment;
-      }
-      if (columnFilters.monthly) {
-        columnStyles[currentColIndex] = { cellWidth: taskColWidth };
-      }
+  try {
+    (doc as any).autoTable({
+        head: [tableHead],
+        body: tableRows,
+        startY: 40,
+        theme: 'grid',
+        headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold', halign: isArabic ? 'right' : 'left' },
+        styles: { fontSize: orientation === 'l' ? 10 : 9, cellPadding: 2, valign: 'middle', halign: isArabic ? 'right' : 'left', overflow: 'linebreak' },
+        didDrawPage: () => addHeader(doc, customHeaderText, isArabic ? "جدول تنظيف المطبخ الشامل" : "Comprehensive Kitchen Cleaning Schedule", logoBase64, language),
+        margin: { top: 40, bottom: 20, left: 10, right: 10 }
+    });
+  } catch (err) {
+      console.error("AutoTable Export Error:", err);
   }
 
-
-  autoTable({
-    head: [tableHead],
-    body: tableRows,
-    startY: 40,
-    theme: 'grid',
-    headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold', halign: isArabic ? 'right' : 'left', font: font },
-    styles: { fontSize: 9, cellPadding: 2, valign: 'middle', halign: isArabic ? 'right' : 'left', font: font },
-    columnStyles: columnStyles,
-    didDrawPage: (data: any) => {
-      addHeader(doc, customHeaderText, isArabic ? "جدول تنظيف المطبخ الشامل" : "Comprehensive Kitchen Cleaning Schedule", logoBase64, language);
-    },
-    margin: { top: 40, bottom: 20 }
-  });
+  if (includeChemicals && chemicals.length > 0) {
+    appendChemicalList(doc, chemicals, language, (doc as any).lastAutoTable.finalY + 10, customHeaderText);
+  }
 
   addFooter(doc, language);
-
   const safeFilename = (filename.trim() || 'cleaning_schedule').replace(/[^a-z0-9]/gi, '_').toLowerCase();
   doc.save(`${safeFilename}.pdf`);
 };
@@ -279,19 +260,18 @@ export const exportChecklistToPDF = (
   chemicals: Chemical[],
   logoBase64: string | null,
   language: Language,
-  columnFilters: ActiveFilters // NEW parameter for checklist filters
+  columnFilters: ActiveFilters,
+  exportScope: 'full' | 'filtered',
+  rowFilters: ActiveFilters,
+  orientation: 'p' | 'l' = 'p',
+  includeNotes: boolean = true,
+  includeChemicals: boolean = false
 ) => {
+  if (!window.jspdf) return;
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
-  const autoTable = (doc as any).autoTable;
+  const doc = new jsPDF({ orientation, unit: 'mm', format: 'a4' });
   const isArabic = language === 'ar';
-  
-  if (isArabic) {
-    doc.addFileToVFS('Amiri-Regular.ttf', cleanBase64(AMIRI_FONT_BASE64)); // Apply cleanBase64 here
-    doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
-  }
-  const font = isArabic ? 'Amiri' : 'helvetica';
-  doc.setFont(font);
+  doc.setFont('helvetica');
 
   const headEnParts = { item: 'Item / Equipment', daily: 'Daily Tasks', weekly: 'Weekly Tasks', monthly: 'Monthly Tasks' };
   const headArParts = { item: 'العنصر / المعدات', daily: 'المهام اليومية', weekly: 'المهام الأسبوعية', monthly: 'المهام الشهرية' };
@@ -301,19 +281,18 @@ export const exportChecklistToPDF = (
   if (columnFilters.daily) tableHead.push(parts.daily);
   if (columnFilters.weekly) tableHead.push(parts.weekly);
   if (columnFilters.monthly) tableHead.push(parts.monthly);
-  if (isArabic) tableHead.reverse(); // Reverse only if Arabic, after adding columns
-
-  const tableRows: any[] = [];
-  const categoryColSpan = tableHead.length; // Dynamic colSpan
+  if (isArabic) tableHead.reverse();
 
   const formatTask = (taskDetail: TaskDetail, isChecked: boolean) => {
     let sanitizedText = sanitizeForPdf(taskDetail.task);
     if (sanitizedText.trim().toLowerCase() === 'n/a' || !sanitizedText.trim()) return 'N/A';
 
-    const notes = sanitizeForPdf(taskDetail.notes);
-    if (notes && notes.trim() && notes.trim().toLowerCase() !== 'n/a') {
-        const notesLabel = isArabic ? 'ملاحظات' : 'Notes';
-        sanitizedText += `\n(${notesLabel}: ${notes})`;
+    if (includeNotes) {
+        const notes = sanitizeForPdf(taskDetail.notes);
+        if (notes && notes.trim() && notes.trim().toLowerCase() !== 'n/a') {
+            const notesLabel = isArabic ? 'ملاحظات' : 'Notes';
+            sanitizedText += `\n(${notesLabel}: ${notes})`;
+        }
     }
 
     if (taskDetail.chemicalId) {
@@ -327,72 +306,57 @@ export const exportChecklistToPDF = (
     return `${checkbox} ${sanitizedText}`;
   };
 
+  const tableRows: any[] = [];
   schedulePlan.schedule.forEach((category, catIndex) => {
-    tableRows.push([{ 
-      content: sanitizeForPdf(category.category), 
-      colSpan: categoryColSpan, // Use dynamic colSpan
-      styles: { fontStyle: 'bold', fillColor: [230, 230, 230], textColor: [44, 62, 80], halign: 'center' } 
-    }]);
-
-    category.items.forEach((item, itemIndex) => {
-      const status = checklistState?.[catIndex]?.[itemIndex] || { daily: false, weekly: false, monthly: false };
-      const rowData = [
-        sanitizeForPdf(item.itemName),
-      ];
-      if (columnFilters.daily) rowData.push(formatTask(item.daily, status.daily));
-      if (columnFilters.weekly) rowData.push(formatTask(item.weekly, status.weekly));
-      if (columnFilters.monthly) rowData.push(formatTask(item.monthly, status.monthly));
-      
-      tableRows.push(isArabic ? rowData.reverse() : rowData);
+    const visibleItems = category.items.filter(item => {
+        if (exportScope === 'full') return true;
+        if (rowFilters.daily && isTaskValid(item.daily)) return true;
+        if (rowFilters.weekly && isTaskValid(item.weekly)) return true;
+        if (rowFilters.monthly && isTaskValid(item.monthly)) return true;
+        return false;
     });
+
+    if (visibleItems.length > 0) {
+        tableRows.push([{ 
+          content: sanitizeForPdf(category.category), 
+          colSpan: tableHead.length, 
+          styles: { fontStyle: 'bold', fillColor: [230, 230, 230], textColor: [44, 62, 80], halign: 'center' } 
+        }]);
+
+        category.items.forEach((item, itemIndex) => {
+            const isVisible = exportScope === 'full' || (rowFilters.daily && isTaskValid(item.daily)) || (rowFilters.weekly && isTaskValid(item.weekly)) || (rowFilters.monthly && isTaskValid(item.monthly));
+            if (isVisible) {
+                const status = checklistState?.[catIndex]?.[itemIndex] || { daily: false, weekly: false, monthly: false };
+                const rowData = [sanitizeForPdf(item.itemName)];
+                if (columnFilters.daily) rowData.push(formatTask(item.daily, status.daily));
+                if (columnFilters.weekly) rowData.push(formatTask(item.weekly, status.weekly));
+                if (columnFilters.monthly) rowData.push(formatTask(item.monthly, status.monthly));
+                tableRows.push(isArabic ? rowData.reverse() : rowData);
+            }
+        });
+    }
   });
 
-  const taskColCount = (columnFilters.daily ? 1 : 0) + (columnFilters.weekly ? 1 : 0) + (columnFilters.monthly ? 1 : 0);
-  const itemColWidth = 40; // Fixed width for Item/Equipment column
-  
-  const columnStyles: { [key: number]: any } = {
-    [isArabic ? tableHead.length - 1 : 0]: { fontStyle: 'bold', cellWidth: itemColWidth }, // Item/Equipment column
-  };
-  
-  // Set equal width for task columns if there are any
-  if (taskColCount > 0) {
-      const availableWidth = doc.internal.pageSize.getWidth() - 20; // page width minus margins
-      const remainingWidth = availableWidth - itemColWidth;
-      const taskColWidth = remainingWidth / taskColCount;
-      
-      let currentColIndex = isArabic ? tableHead.length - 2 : 1;
-      const increment = isArabic ? -1 : 1;
-
-      if (columnFilters.daily) {
-        columnStyles[currentColIndex] = { cellWidth: taskColWidth };
-        currentColIndex += increment;
-      }
-      if (columnFilters.weekly) {
-        columnStyles[currentColIndex] = { cellWidth: taskColWidth };
-        currentColIndex += increment;
-      }
-      if (columnFilters.monthly) {
-        columnStyles[currentColIndex] = { cellWidth: taskColWidth };
-      }
+  try {
+    (doc as any).autoTable({
+        head: [tableHead],
+        body: tableRows,
+        startY: 40,
+        theme: 'grid',
+        headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold', halign: isArabic ? 'right' : 'left' },
+        styles: { fontSize: orientation === 'l' ? 10 : 9, cellPadding: 2, valign: 'middle', halign: isArabic ? 'right' : 'left', overflow: 'linebreak' },
+        didDrawPage: () => addHeader(doc, customHeaderText, isArabic ? "قائمة تدقيق التنظيف" : "Cleaning Checklist Status", logoBase64, language),
+        margin: { top: 40, bottom: 20, left: 10, right: 10 }
+    });
+  } catch (err) {
+      console.error("AutoTable Export Error:", err);
   }
 
-
-  autoTable({
-    head: [tableHead],
-    body: tableRows,
-    startY: 40,
-    theme: 'grid',
-    headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold', halign: isArabic ? 'right' : 'left', font: font },
-    styles: { fontSize: 9, cellPadding: 2, valign: 'middle', halign: isArabic ? 'right' : 'left', font: font },
-    columnStyles: columnStyles,
-    didDrawPage: () => {
-      addHeader(doc, customHeaderText, isArabic ? "حالة قائمة التحقق من التنظيف" : "Cleaning Checklist Status", logoBase64, language);
-    },
-    margin: { top: 40, bottom: 20 }
-  });
+  if (includeChemicals && chemicals.length > 0) {
+    appendChemicalList(doc, chemicals, language, (doc as any).lastAutoTable.finalY + 10, customHeaderText);
+  }
 
   addFooter(doc, language);
-
   const safeFilename = (filename.trim() || 'checklist_status').replace(/[^a-z0-9]/gi, '_').toLowerCase();
   doc.save(`${safeFilename}.pdf`);
 };
@@ -404,71 +368,68 @@ export const exportChemicalsToPDF = (
   logoBase64: string | null,
   language: Language
 ) => {
+  if (!window.jspdf) return;
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' }); // Use landscape
-  const autoTable = (doc as any).autoTable;
+  const doc = new jsPDF({ orientation: 'l', unit: 'mm', format: 'a4' });
   const isArabic = language === 'ar';
+  doc.setFont('helvetica');
 
-  if (isArabic) {
-    doc.addFileToVFS('Amiri-Regular.ttf', cleanBase64(AMIRI_FONT_BASE64)); // Apply cleanBase64 here
-    doc.addFont('Amiri-Regular.ttf', 'Amiri', 'normal');
-  }
-  const font = isArabic ? 'Amiri' : 'helvetica';
-  doc.setFont(font);
-
-  const headEn = ['Name', 'Used For', 'Safety & Application Details'];
-  const headAr = ['تفاصيل السلامة والاستخدام', 'تستخدم لـ', 'الاسم'];
+  const headEn = ['Chemical Name', 'Active Ingredient', 'Used For', 'Application Instructions', 'Required PPE Gear', 'Safety Notes'];
+  const headAr = ['ملاحظات السلامة', 'معدات الوقاية المطلوبة', 'تعليمات الاستخدام', 'تستخدم لـ', 'المكون النشط', 'اسم المادة'];
   const tableHead = isArabic ? headAr : headEn;
 
   const tableBody = chemicals.map(chem => {
-    const detailsLabels = {
-      ingredient: isArabic ? "المكون النشط" : "Active Ingredient",
-      application: isArabic ? "الاستخدام" : "Application",
-      toxicology: isArabic ? "المعلومات السمية" : "Toxicology",
-      ppe: isArabic ? "الحماية الشخصية" : "PPE"
-    };
-    
-    const details = [
-      `${detailsLabels.ingredient}: ${sanitizeForPdf(chem.activeIngredient) || 'N/A'}`,
-      `${detailsLabels.application}: ${sanitizeForPdf(chem.application)}`,
-      `${detailsLabels.toxicology}: ${sanitizeForPdf(chem.toxicologicalInfo) || 'N/A'}`,
-      `${detailsLabels.ppe}: ${sanitizeForPdf(chem.personalProtection) || 'N/A'}`
-    ].join('\n\n');
+    let ppeGear = 'N/A';
+    if (chem.ppeList && chem.ppeList.length > 0) {
+        ppeGear = chem.ppeList
+            .map(id => {
+                const opt = PPE_OPTIONS.find(o => o.id === id);
+                return `• ${opt ? t(opt.label) : id}`;
+            })
+            .join('\n');
+    }
+
+    let safetyNotes: string[] = [];
+    if (chem.personalProtection && chem.personalProtection.trim()) {
+        safetyNotes.push(chem.personalProtection);
+    }
+    if (chem.toxicologicalInfo && chem.toxicologicalInfo.trim()) {
+        safetyNotes.push(`Hazards: ${chem.toxicologicalInfo}`);
+    }
+    const safetyStr = safetyNotes.length > 0 ? safetyNotes.join('\n\n') : 'N/A';
 
     const row = [
       sanitizeForPdf(chem.name),
+      sanitizeForPdf(chem.activeIngredient) || 'N/A',
       sanitizeForPdf(chem.usedFor),
-      details,
+      sanitizeForPdf(chem.application),
+      sanitizeForPdf(ppeGear),
+      sanitizeForPdf(safetyStr)
     ];
     return isArabic ? row.reverse() : row;
   });
   
-  const nameColWidth = 40;
-  const usedForColWidth = 60;
-  const detailsColWidth = doc.internal.pageSize.getWidth() - nameColWidth - usedForColWidth - 20; // 20 for margins
-
-  const columnStyles: { [key: number]: any } = {
-    [isArabic ? 2 : 0]: { fontStyle: 'bold', cellWidth: nameColWidth },
-    [isArabic ? 1 : 1]: { cellWidth: usedForColWidth },
-    [isArabic ? 0 : 2]: { cellWidth: detailsColWidth },
-  };
-
-  autoTable({
-    head: [tableHead],
-    body: tableBody,
-    startY: 40,
-    theme: 'grid',
-    headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold', halign: isArabic ? 'right' : 'left', font: font },
-    styles: { fontSize: 9, cellPadding: 2, valign: 'middle', halign: isArabic ? 'right' : 'left', font: font },
-    columnStyles: columnStyles,
-    didDrawPage: () => {
-      addHeader(doc, customHeaderText, isArabic ? "القائمة الرئيسية للمواد الكيميائية" : "Cleaning Chemical Master List", logoBase64, language);
-    },
-    margin: { top: 40, bottom: 20 }
-  });
+  try {
+    (doc as any).autoTable({
+        head: [tableHead],
+        body: tableBody,
+        startY: 40,
+        theme: 'grid',
+        headStyles: { fillColor: [44, 62, 80], textColor: 255, fontStyle: 'bold', halign: isArabic ? 'right' : 'left' },
+        styles: { fontSize: 8.5, cellPadding: 3, valign: 'top', halign: isArabic ? 'right' : 'left', overflow: 'linebreak' },
+        columnStyles: {
+            [isArabic ? 5 : 0]: { fontStyle: 'bold', cellWidth: 35 },
+            [isArabic ? 1 : 4]: { cellWidth: 40 },
+            [isArabic ? 0 : 5]: { cellWidth: 50 }
+        },
+        didDrawPage: () => addHeader(doc, customHeaderText, isArabic ? "القائمة الرئيسية للمواد الكيميائية" : "Cleaning Chemical Master List", logoBase64, language),
+        margin: { top: 40, bottom: 20, left: 10, right: 10 }
+    });
+  } catch (err) {
+      console.error("Chemical PDF Export Error:", err);
+  }
 
   addFooter(doc, language);
-
   const safeFilename = (filename.trim() || 'chemical_list').replace(/[^a-z0-9]/gi, '_').toLowerCase();
   doc.save(`${safeFilename}.pdf`);
 };

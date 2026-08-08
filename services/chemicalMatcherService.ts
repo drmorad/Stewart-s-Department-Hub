@@ -1,198 +1,255 @@
 import type { Chemical } from '../types';
 
-// Expanded stop words to be more effective.
+// Stop words to ignore during tokenization
 const STOP_WORDS = new Set([
   'a', 'an', 'the', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for', 'with', 'by', 'of', 'from',
-  'clean', 'wipe', 'scrub', 'sanitize', 'disinfect', 'wash', 'rinse', 'polish', 'deep', 'all',
+  'clean', 'cleaning', 'cleaner', 'wipe', 'scrub', 'sanitize', 'disinfect', 'wash', 'rinse', 'polish', 'deep', 'all',
   'remove', 'buildup', 'grease', 'stains', 'down', 'surfaces', 'equipment', 'tools', 'daily',
   'weekly', 'monthly', 'as', 'needed', 'ensure', 'is', 'are', 'be', 'it', 'its', 'n/a', 'using',
   'solution', 'machine', 'interior', 'exterior', 'parts', 'components', 'check', 'detailed',
-  'specific', 'mention'
+  'specific', 'mention', 'use', 'apply', 'procedure', 'instructions', 'method', 'surface', 'pre', 'post',
+  'make', 'sure', 'maintain', 'proper', 'regular', 'correct', 'appropriate'
 ]);
 
-/**
- * Tokenizes and cleans text for matching.
- * - Converts to lowercase.
- * - Removes punctuation.
- * - Splits into words.
- * - Removes common stop words.
- * - Adds the singular form for words ending in 's' (basic stemming).
- * @param text The input string.
- * @returns A set of cleaned words (tokens).
- */
+// Maps active ingredients to high-priority equipment categories
+const ACTIVE_INGREDIENT_MAP: Record<string, string[]> = {
+  'sodium hydroxide': ['grill', 'oven', 'fryer', 'degreaser', 'heavy duty', 'carbon'],
+  'potassium hydroxide': ['grill', 'oven', 'fryer', 'degreaser', 'caustic'],
+  'phosphoric acid': ['descaler', 'limescale', 'dishwasher', 'coffee', 'ice', 'delimer'],
+  'citric acid': ['descaler', 'coffee', 'kettle', 'safe acid'],
+  'quaternary ammonium': ['sanitizer', 'surface', 'counter', 'prep', 'food contact'],
+  'sodium hypochlorite': ['bleach', 'floor', 'drain', 'sanitizer', 'chlorine'],
+  'isopropyl alcohol': ['glass', 'electronic', 'probe', 'no rinse'],
+};
+
+// Material Sensitivity Map: Penalize chemicals with these ingredients on certain surfaces
+const MATERIAL_SENSITIVITY: Record<string, string[]> = {
+  'sodium hydroxide': ['aluminum', 'aluminium', 'brass', 'copper', 'soft metal', 'galvanized'],
+  'potassium hydroxide': ['aluminum', 'aluminium', 'brass', 'copper', 'soft metal'],
+  'phosphoric acid': ['marble', 'limestone', 'stone', 'soft metal'],
+  'sodium hypochlorite': ['stainless steel', 'ss', 'metal', 'prolonged contact']
+};
+
+// Expanded Synonyms map to link related kitchen terms and common brands
+const SYNONYMS: Record<string, string[]> = {
+  'oven': ['combi', 'convotherm', 'rational', 'stove', 'range', 'cooker', 'roaster', 'baking', 'chamber', 'unox', 'retigo', 'alto-shaam', 'turbofan', 'steamer', 'vapor', 'microwave'],
+  'combi': ['oven', 'steamer', 'rational', 'convotherm', 'retigo', 'unox', 'alto-shaam', 'vapor'],
+  'grill': ['griddle', 'plancha', 'flat top', 'charbroiler', 'salamander', 'broiler', 'bbq', 'barbecue', 'hot plate', 'flattop', 'chargrill', 'contact grill'],
+  'griddle': ['grill', 'flat top', 'plancha', 'plate', 'skillet'],
+  'fryer': ['vat', 'deep fryer', 'basket', 'oil', 'frying', 'pressure fryer', 'henny penny', 'fryline'],
+  'fridge': ['refrigerator', 'chiller', 'cooler', 'walk-in', 'cold room', 'reach-in', 'under-counter', 'cabinet', 'upright', 'foster', 'williams', 'true', 'undercounter'],
+  'refrigerator': ['fridge', 'chiller', 'cooler', 'cabinet'],
+  'freezer': ['walk-in', 'cold room', 'blast', 'shock', 'irinox', 'chest freezer'],
+  'dishwasher': ['warewash', 'dish machine', 'glass washer', 'flight machine', 'hood type', 'conveyor', 'passthrough', 'pot wash', 'hobart', 'winterhalter', 'meiko', 'glasswasher'],
+  'warewash': ['dishwasher', 'washing', 'cleaning', 'meiko', 'hobart'],
+  'sink': ['basin', 'wash station', 'trough', 'bowl', 'handwash', 'faucet', 'soak', 'pot sink'],
+  'floor': ['deck', 'ground', 'grout', 'tile', 'drain', 'skirting', 'vinyl', 'concrete', 'mop', 'walkway', 'kitchen floor'],
+  'counter': ['worktable', 'prep table', 'surface', 'bench', 'stainless', 'top', 'pass', 'preparation table'],
+  'stainless': ['steel', 'metal', 'counter', 'worktable', 'inox', 'chrome', 'ss'],
+  'glass': ['window', 'mirror', 'display', 'sneeze guard', 'panel', 'vitrine', 'sneeze', 'screen', 'glazing'],
+  'descaler': ['delimer', 'acid', 'scale remover', 'lime', 'calcium', 'mineral', 'clorox', 'limescale'],
+  'degreaser': ['oven cleaner', 'grill cleaner', 'heavy duty', 'carbon remover', 'caustic', 'alkaline', 'fat remover', 'grease lifter'],
+  'coffee': ['espresso', 'brewer', 'machine', 'urn', 'percolator', 'grinder', 'bean', 'wmf', 'bunn', 'cappuccino'],
+  'ice': ['maker', 'machine', 'bin', 'cuber', 'flaker', 'hoshizaki', 'manitowoc', 'icemaker'],
+  'hand': ['soap', 'sanitizer', 'wash', 'lotion', 'dispenser', 'hygiene'],
+  'drain': ['floor', 'trough', 'pipe', 'gully', 'grate', 'channel', 'grease trap'],
+  'slicer': ['meat slicer', 'cutter', 'blade', 'deli', 'mandoline', 'berkel', 'bizerba', 'gravity slicer'],
+  'mixer': ['planetary', 'stand mixer', 'bowl', 'beater', 'whisk', 'dough', 'spiral', 'hobart', 'kitchenaid', 'blender'],
+  'cutting': ['board', 'chopping', 'poly', 'block', 'color coded', 'prep board'],
+  'sanitizer': ['disinfectant', 'quat', 'bleach', 'alcohol', 'spray', 'sanitising', 'food safe', 'd4', 'anti-bac'],
+  'hood': ['canopy', 'vent', 'filter', 'exhaust', 'extraction', 'baffle', 'ventilation'],
+  'bratt': ['tilting', 'skillet', 'braising', 'pan'],
+  'kettle': ['boiler', 'steam', 'jacketed', 'soup'],
+  'salamander': ['broiler', 'melter', 'overhead', 'grill'],
+  'blast': ['chiller', 'freezer', 'shock', 'irinox'],
+  'tilt': ['skillet', 'pan', 'bratt'],
+  'vacuum': ['pack', 'sealer', 'multivac', 'henkelman', 'sous vide']
+};
+
+const levenshteinDistance = (a: string, b: string): number => {
+  if (a.length === 0) return b.length;
+  if (b.length === 0) return a.length;
+  const matrix = Array.from({ length: b.length + 1 }, (_, i) => [i]);
+  for (let i = 0; i <= a.length; i++) matrix[0][i] = i;
+  for (let i = 1; i <= b.length; i++) {
+    for (let j = 1; j <= a.length; j++) {
+      if (b.charAt(i - 1) === a.charAt(j - 1)) matrix[i][j] = matrix[i - 1][j - 1];
+      else matrix[i][j] = Math.min(matrix[i - 1][j - 1] + 1, Math.min(matrix[i][j - 1] + 1, matrix[i - 1][j] + 1));
+    }
+  }
+  return matrix[b.length][a.length];
+};
+
 const getTokens = (text: string): Set<string> => {
   if (!text) return new Set();
   const tokens = new Set<string>();
-  
-  text
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '') // Remove punctuation
+  text.toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
     .split(/\s+/)
     .forEach(word => {
         if (word.length > 2 && !STOP_WORDS.has(word)) {
             tokens.add(word);
-            // Basic stemming: if a word ends in 's', also add its singular form.
-            if (word.endsWith('s') && word.length > 3) {
-                tokens.add(word.slice(0, -1));
-            }
+            if (word.endsWith('s') && word.length > 3) tokens.add(word.slice(0, -1));
+            else if (word.endsWith('ing') && word.length > 5) tokens.add(word.slice(0, -3));
+            else if (word.endsWith('ed') && word.length > 4) tokens.add(word.slice(0, -2));
         }
     });
   return tokens;
 };
 
-/**
- * Calculates a safety penalty for a chemical based on its toxicological information and personal protection requirements.
- * Higher penalty for more severe warnings.
- * @param chemical The chemical object.
- * @returns The calculated safety penalty.
- */
-const calculateSafetyPenalty = (chemical: Chemical): number => {
+export const calculateSafetyPenalty = (chemical: Chemical): number => {
     let penalty = 0;
-    const lowerToxicology = (chemical.toxicologicalInfo || '').toLowerCase();
-    const lowerProtection = (chemical.personalProtection || '').toLowerCase();
+    const tox = (chemical.toxicologicalInfo || '').toLowerCase();
+    const ppe = (chemical.personalProtection || '').toLowerCase();
+    const ppeListStr = (chemical.ppeList || []).join(' ').toLowerCase();
 
-    // Toxicological info keywords and their penalties
-    const toxicologyPenalties = {
-        'fatal': 100, 'toxic': 80, 'poison': 80, 'corrosive': 70, 'carcinogen': 90,
-        'mutagen': 90, 'reproductive toxin': 90, 'aspiration hazard': 60, 'severe': 50,
-        'harmful': 30, 'irritant': 20, 'sensitizer': 20, 'danger': 40,
+    const risks = {
+        'fatal': 600, 
+        'toxic': 400, 
+        'carcinogen': 450, 
+        'scba': 300, 
+        'respirator': 250,
+        'corrosive': 200, 
+        'burns': 180, 
+        'severe': 150, 
+        'explosive': 300, 
+        'danger': 140,
+        'harmful': 100, 
+        'warning': 80, 
+        'shield': 100, 
+        'irritant': 70, 
+        'goggles': 60,
+        'mask': 50, 
+        'gloves': 40, 
+        'apron': 40, 
+        'boots': 40, 
+        'flammable': 150,
+        'organ damage': 350,
+        'respiratory sensitizer': 300,
+        'skin corrosion': 220,
+        'serious eye damage': 250
     };
 
-    // Personal protection keywords and their penalties
-    const protectionPenalties = {
-        'respirator': 70, 'scba': 80, 'ventilated hood': 60, 'full-face shield': 50,
-        'chemical-resistant suit': 70, 'goggles': 20, 'safety glasses': 10,
-        'gloves': 10, 'apron': 10, 'mask': 10,
-    };
+    Object.entries(risks).forEach(([key, val]) => {
+        if (tox.includes(key) || ppe.includes(key) || ppeListStr.includes(key)) penalty += val;
+    });
 
-    for (const keyword in toxicologyPenalties) {
-        if (lowerToxicology.includes(keyword)) {
-            penalty += toxicologyPenalties[keyword as keyof typeof toxicologyPenalties];
-        }
-    }
-
-    for (const keyword in protectionPenalties) {
-        if (lowerProtection.includes(keyword)) {
-            penalty += protectionPenalties[keyword as keyof typeof protectionPenalties];
-        }
+    if (chemical.ppeList && chemical.ppeList.length > 0) {
+        penalty += (chemical.ppeList.length * 45);
     }
     
-    // Add a small base penalty for any specific toxicological/PPE info being present,
-    // to slightly de-prioritize chemicals that require *any* safety consideration
-    // over those with no information (assuming "no information" implies lower risk for this context).
-    if (chemical.toxicologicalInfo && chemical.toxicologicalInfo.toLowerCase() !== 'not specified' && chemical.toxicologicalInfo.trim() !== '') {
-        penalty += 5;
-    }
-    if (chemical.personalProtection && chemical.personalProtection.toLowerCase() !== 'not specified' && chemical.personalProtection.trim() !== '') {
-        penalty += 5;
-    }
-
     return penalty;
 };
 
+const impliesFoodContact = (text: string): boolean => {
+    const keywords = ['pot', 'pan', 'plate', 'cutlery', 'utensil', 'prep', 'cutting board', 'chopping', 'surface', 'counter', 'slicer', 'mixer', 'interior', 'food', 'table', 'tray', 'blade', 'contact', 'gastronorm', 'gn', 'prep board', 'worktable', 'cookware', 'utensils'];
+    const lowerText = text.toLowerCase();
+    return keywords.some(k => lowerText.includes(k));
+};
 
-/**
- * Finds the best matching chemical for a given cleaning task using a weighted scoring model.
- *
- * This refined function improves accuracy by:
- * 1.  **Enhanced Tokenization**: Includes basic stemming for plurals (e.g., 'ovens' becomes 'oven').
- * 2.  **Weighted Scoring**: Assigns higher scores to keywords matching the item's name (high relevance)
- *     versus the task description (context).
- * 3.  **Match Quality Scoring**: Differentiates between exact matches (e.g., token 'grill' matches
- *     keyword 'grill') and partial matches (e.g., token 'steel' matches keyword 'stainless steel'),
- *     awarding significantly more points for exact matches.
- * 4.  **Safety Penalty**: Incorporates a penalty based on toxicological information and personal
- *     protection requirements, favoring less hazardous chemicals for general tasks.
- *
- * @param itemName The name of the item to be cleaned (e.g., "Oven").
- * @param taskDescription The description of the cleaning task (e.g., "Deep clean interior").
- * @param chemicals An array of available chemicals.
- * @returns The ID of the best matching chemical, or null if no suitable match is found.
- */
+const isFoodSafeChemical = (chemical: Chemical): boolean => {
+    const text = (chemical.name + ' ' + (chemical.activeIngredient || '') + ' ' + (chemical.application || '') + ' ' + (chemical.usedFor || '')).toLowerCase();
+    return text.includes('food safe') || text.includes('food grade') || text.includes('rinse free') || text.includes('no-rinse') || text.includes('sanitizer') || text.includes('d4') || text.includes('food-safe') || text.includes('contact safe') || text.includes('multipurpose');
+};
+
 export const findBestChemicalForTask = (
   itemName: string,
   taskDescription: string,
   chemicals: Chemical[]
 ): string | null => {
-  if (!taskDescription || taskDescription.trim().toLowerCase() === 'n/a' || chemicals.length === 0) {
-    return null;
-  }
-  
-  // Generate tokens from the item name and task description.
-  const itemNameTokens = getTokens(itemName);
-  const taskDescriptionTokens = getTokens(taskDescription);
-  
-  if (itemNameTokens.size === 0 && taskDescriptionTokens.size === 0) {
-    return null;
-  }
+  if (chemicals.length === 0) return null;
 
+  const docFrequency: Record<string, number> = {};
+  const chemicalTokensMap: Record<string, Set<string>> = {};
+
+  chemicals.forEach(chem => {
+      const tokens = getTokens((chem.usedFor || '') + ' ' + chem.name + ' ' + (chem.activeIngredient || ''));
+      chemicalTokensMap[chem.id] = tokens;
+      tokens.forEach(token => { docFrequency[token] = (docFrequency[token] || 0) + 1; });
+  });
+
+  const totalDocs = chemicals.length;
+  const getIdf = (term: string) => {
+      const count = docFrequency[term] || 0;
+      return Math.log((totalDocs + 1) / (count + 0.5)); 
+  };
+
+  const itemTokens = getTokens(itemName);
+  const taskTokens = getTokens(taskDescription);
+  const isFoodContactTask = impliesFoodContact(itemName + ' ' + taskDescription);
+  const isStainless = (itemName + ' ' + taskDescription).toLowerCase().includes('stainless');
+  
   let bestMatch: { id: string; score: number } | null = null;
-  
-  // --- Scoring Configuration ---
-  // Matches from the item name are more important than from the task description.
-  const ITEM_NAME_WEIGHT = 5;
-  const TASK_DESC_WEIGHT = 2;
-  
-  // Exact keyword matches are much more valuable than partial ones.
-  const EXACT_MATCH_SCORE = 10;
-  const PARTIAL_MATCH_SCORE = 1;
 
   chemicals.forEach(chemical => {
-    // A chemical must have 'usedFor' keywords to be considered.
-    if (!chemical.usedFor) {
-        return;
-    }
-      
-    const chemicalKeywords = new Set(
-      chemical.usedFor
-        .toLowerCase()
-        .split(',')
-        .map(k => k.trim())
-        .filter(Boolean)
-    );
+      const chemTokens = chemicalTokensMap[chemical.id];
+      const activeIng = (chemical.activeIngredient || '').toLowerCase();
+      let relevanceScore = 0;
 
-    if (chemicalKeywords.size === 0) {
-      return;
-    }
+      const calculateScore = (inputTokens: Set<string>, weight: number) => {
+          let score = 0;
+          inputTokens.forEach(token => {
+              let tokenScore = 0;
+              const idf = getIdf(token);
+              
+              if (chemTokens.has(token)) tokenScore = Math.max(tokenScore, idf * 3.5);
+              
+              const syns = SYNONYMS[token] || [];
+              syns.forEach(syn => { if (chemTokens.has(syn)) tokenScore = Math.max(tokenScore, getIdf(syn) * 2.5); });
 
-    let currentScore = 0;
+              // Active Ingredient Priority Match
+              Object.entries(ACTIVE_INGREDIENT_MAP).forEach(([ingredient, relatedTerms]) => {
+                  if (activeIng.includes(ingredient) && (inputTokens.has(token) || Array.from(inputTokens).some(t => relatedTerms.includes(t)))) {
+                      tokenScore = Math.max(tokenScore, 6.0); 
+                  }
+              });
 
-    /**
-     * Calculates a score for a set of tokens against the chemical's keywords.
-     * It finds the best match type (exact or partial) for each token to avoid
-     * inflating scores for general terms.
-     */
-    const calculateContentMatchScore = (tokens: Set<string>, weight: number): number => {
-      let score = 0;
-      tokens.forEach(token => {
-        let bestScoreForToken = 0;
-        chemicalKeywords.forEach(keyword => {
-          if (keyword === token) { // Exact match is best
-            bestScoreForToken = Math.max(bestScoreForToken, EXACT_MATCH_SCORE);
-          } else if (keyword.includes(token) || token.includes(keyword)) { // Partial match is good
-            bestScoreForToken = Math.max(bestScoreForToken, PARTIAL_MATCH_SCORE);
+              if (tokenScore === 0 && token.length > 3) {
+                  chemTokens.forEach(ct => {
+                      if (ct.length > 3) {
+                          const dist = levenshteinDistance(token, ct);
+                          const threshold = token.length > 8 ? 2 : 1;
+                          if (dist <= threshold) {
+                              tokenScore = Math.max(tokenScore, getIdf(ct) * 0.8);
+                          }
+                      }
+                  });
+              }
+              score += tokenScore;
+          });
+          return score * weight;
+      };
+
+      relevanceScore += calculateScore(itemTokens, 8.0); 
+      relevanceScore += calculateScore(taskTokens, 5.0); 
+
+      // Food Contact Nuance
+      if (isFoodContactTask && isFoodSafeChemical(chemical)) relevanceScore *= 2.8;
+      else if (isFoodContactTask && !isFoodSafeChemical(chemical)) relevanceScore *= 0.2;
+
+      // Material Sensitivity Nuance
+      Object.entries(MATERIAL_SENSITIVITY).forEach(([ingredient, sensitiveSurfaces]) => {
+          if (activeIng.includes(ingredient)) {
+              sensitiveSurfaces.forEach(surface => {
+                  if ((itemName + ' ' + taskDescription).toLowerCase().includes(surface)) {
+                      relevanceScore *= 0.4; // Strong penalty for potentially damaging matching
+                  }
+              });
           }
-        });
-        score += bestScoreForToken;
       });
-      return score * weight;
-    };
 
-    // Calculate and combine scores from item name and task description.
-    currentScore += calculateContentMatchScore(itemNameTokens, ITEM_NAME_WEIGHT);
-    currentScore += calculateContentMatchScore(taskDescriptionTokens, TASK_DESC_WEIGHT);
-    
-    // Apply safety penalty
-    const safetyPenalty = calculateSafetyPenalty(chemical);
-    currentScore -= safetyPenalty;
+      // Daily vs Heavy Duty Nuance
+      const isMonthlyDeepClean = taskDescription.toLowerCase().includes('deep') || taskDescription.toLowerCase().includes('heavy') || taskDescription.toLowerCase().includes('monthly');
+      if (isMonthlyDeepClean && (activeIng.includes('hydroxide') || activeIng.includes('caustic'))) relevanceScore *= 1.5;
 
-    // Ensure score doesn't go below zero
-    currentScore = Math.max(0, currentScore);
+      if (relevanceScore > 0.1) {
+          const safetyPenalty = calculateSafetyPenalty(chemical);
+          relevanceScore -= (safetyPenalty * 0.04);
+      }
 
-    // If this chemical has the highest score so far, it's our new best match.
-    if (currentScore > 0 && (!bestMatch || currentScore > bestMatch.score)) {
-      bestMatch = { id: chemical.id, score: currentScore };
-    }
+      if (relevanceScore > 1.0 && (!bestMatch || relevanceScore > bestMatch.score)) {
+          bestMatch = { id: chemical.id, score: relevanceScore };
+      }
   });
 
   return bestMatch ? bestMatch.id : null;

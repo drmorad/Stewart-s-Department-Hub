@@ -1,9 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+
+import React, { useState, useEffect, useMemo } from 'react';
 import type { Chemical } from '../types';
 import { exportChemicalsToPDF } from '../services/pdfService';
 import { extractChemicalInfoFromPdf } from '../services/geminiService';
-import ConfirmationDialog from './ConfirmationDialog';
+import { calculateSafetyPenalty } from '../services/chemicalMatcherService';
 import { t, Language } from '../i18n';
+import { PPE_OPTIONS } from '../constants';
 
 interface ChemicalManagerProps {
   isOpen: boolean;
@@ -16,470 +18,352 @@ interface ChemicalManagerProps {
   customHeader: string;
   logo: string | null;
   language: Language;
+  pdfFilename: string;
 }
 
-const ChemicalManager: React.FC<ChemicalManagerProps> = ({ isOpen, onClose, chemicals, onAdd, onBulkAdd, onUpdate, onDelete, customHeader, logo, language }) => {
+const resizeImage = (file: File, maxWidth: number, maxHeight: number): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const img = new Image();
+      img.onload = () => {
+        let width = img.width;
+        let height = img.height;
+        if (width > height) { if (width > maxWidth) { height *= maxWidth / width; width = maxWidth; } } 
+        else { if (height > maxHeight) { width *= maxHeight / height; height = maxHeight; } }
+        const canvas = document.createElement('canvas');
+        canvas.width = width; canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) { ctx.drawImage(img, 0, 0, width, height); resolve(canvas.toDataURL('image/jpeg', 0.8)); } 
+        else { reject(new Error('Canvas context not available')); }
+      };
+      img.onerror = () => reject(new Error('Failed to load image'));
+      img.src = event.target?.result as string;
+    };
+    reader.onerror = () => reject(new Error('Failed to read file'));
+    reader.readAsDataURL(file);
+  });
+};
+
+const getSafetyLevel = (chem: Chemical): 'high' | 'medium' | 'low' => {
+    const penalty = calculateSafetyPenalty(chem);
+    if (penalty >= 100) return 'high';
+    if (penalty >= 40) return 'medium';
+    return 'low';
+};
+
+const ChemicalManager: React.FC<ChemicalManagerProps> = ({ isOpen, onClose, chemicals, onAdd, onBulkAdd, onUpdate, onDelete, customHeader, logo, language, pdfFilename }) => {
   const [name, setName] = useState('');
   const [activeIngredient, setActiveIngredient] = useState('');
   const [usedFor, setUsedFor] = useState('');
   const [application, setApplication] = useState('');
-  const [color, setColor] = useState('#cccccc');
+  const [color, setColor] = useState('#3b82f6');
   const [image, setImage] = useState<string | null>(null);
   const [toxicologicalInfo, setToxicologicalInfo] = useState('');
   const [personalProtection, setPersonalProtection] = useState('');
+  const [ppeList, setPpeList] = useState<string[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [pdfFilename, setPdfFilename] = useState('chemical_list');
   const [searchTerm, setSearchTerm] = useState('');
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const [showFilters, setShowFilters] = useState(false);
+  const [activeSafetyFilter, setActiveSafetyFilter] = useState<'all' | 'high' | 'medium' | 'low'>('all');
+  const [activePpeFilters, setActivePpeFilters] = useState<string[]>([]);
+  const [activeKeywordFilter, setActiveKeywordFilter] = useState<string>('');
 
   const [view, setView] = useState<'form' | 'import'>('form');
   const [importText, setImportText] = useState('');
   const [importStatus, setImportStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionStatus, setExtractionStatus] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
-  
-  const [isPdfConfirmOpen, setIsPdfConfirmOpen] = useState(false);
+  const [extractedChemicalsList, setExtractedChemicalsList] = useState<Omit<Chemical, 'id' | 'color' | 'image'>[]>([]);
 
   useEffect(() => {
-    if (!isOpen) {
-      resetForm();
-      setView('form');
-      setImportText('');
-      setImportStatus(null);
-      setSearchTerm('');
-    }
+    if (!isOpen) { resetForm(); setView('form'); setImportText(''); setImportStatus(null); setSearchTerm(''); setExtractedChemicalsList([]); setShowFilters(false); resetFilters(); }
   }, [isOpen]);
 
-  const resetForm = () => {
-    setName('');
-    setActiveIngredient('');
-    setUsedFor('');
-    setApplication('');
-    setColor('#cccccc');
-    setImage(null);
-    setToxicologicalInfo('');
-    setPersonalProtection('');
-    setEditingId(null);
-    setExtractionStatus(null);
-    setIsExtracting(false);
-  };
+  const resetForm = () => { setName(''); setActiveIngredient(''); setUsedFor(''); setApplication(''); setColor('#3b82f6'); setImage(null); setToxicologicalInfo(''); setPersonalProtection(''); setPpeList([]); setEditingId(null); setExtractionStatus(null); setIsExtracting(false); setExtractedChemicalsList([]); };
+  const resetFilters = () => { setActiveSafetyFilter('all'); setActivePpeFilters([]); setActiveKeywordFilter(''); };
 
   const handleEdit = (chemical: Chemical) => {
-    setView('form');
-    setEditingId(chemical.id);
-    setName(chemical.name);
-    setActiveIngredient(chemical.activeIngredient);
-    setUsedFor(chemical.usedFor);
-    setApplication(chemical.application);
-    setColor(chemical.color || '#cccccc');
-    setImage(chemical.image || null);
-    setToxicologicalInfo(chemical.toxicologicalInfo || '');
-    setPersonalProtection(chemical.personalProtection || '');
+    setView('form'); setEditingId(chemical.id); setName(chemical.name); setActiveIngredient(chemical.activeIngredient); setUsedFor(chemical.usedFor); setApplication(chemical.application); setColor(chemical.color || '#3b82f6'); setImage(chemical.image || null); setToxicologicalInfo(chemical.toxicologicalInfo || ''); setPersonalProtection(chemical.personalProtection || ''); setPpeList(chemical.ppeList || []);
+  };
+
+  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      try {
+        const resized = await resizeImage(file, 400, 400);
+        setImage(resized);
+      } catch (err) {
+        console.error("Image upload failed:", err);
+      }
+    }
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!name || !usedFor || !application) {
-        alert(t('chemicalManager.alertRequiredFields'));
-        return;
-    }
-
-    const chemicalData = { name, activeIngredient, usedFor, application, color, image, toxicologicalInfo, personalProtection };
-    if (editingId) {
-      onUpdate({ ...chemicalData, id: editingId });
-    } else {
-      onAdd(chemicalData);
-    }
+    if (!name || !usedFor || !application) { alert(t('chemicalManager.alertRequiredFields')); return; }
+    const data = { name, activeIngredient, usedFor, application, color, image, toxicologicalInfo, personalProtection, ppeList };
+    if (editingId) onUpdate({ ...data, id: editingId }); else onAdd(data);
     resetForm();
   };
 
-  const triggerPdfExportConfirmation = () => {
-    setIsPdfConfirmOpen(true);
-  };
-
-  const handleConfirmAndExport = () => {
-    exportChemicalsToPDF(chemicals, customHeader, pdfFilename, logo, language);
-    setIsPdfConfirmOpen(false);
-  };
-
   const handleBulkImport = () => {
-    if (!importText.trim()) {
-      setImportStatus({ message: t('chemicalManager.importEmpty'), type: 'error' });
-      return;
-    }
-
-    const lines = importText.split('\n').filter(line => line.trim() !== '');
-    const newChemicals: Omit<Chemical, 'id'>[] = [];
-    let failedCount = 0;
-
+    if (!importText.trim()) { setImportStatus({ message: t('chemicalManager.importEmpty'), type: 'error' }); return; }
+    const lines = importText.split('\n').filter(line => line.trim() !== '' && !line.startsWith('#'));
+    const newChems: Omit<Chemical, 'id'>[] = [];
     lines.forEach(line => {
-      const parts = line.split(';').map(p => p.trim());
-       if (parts.length >= 6) { // Minimum required fields for a valid entry
-        const newChem: Omit<Chemical, 'id'> = {
-          name: parts[0],
-          activeIngredient: parts[1],
-          usedFor: parts[2],
-          application: parts[3],
-          toxicologicalInfo: parts[4] || undefined,
-          personalProtection: parts[5] || undefined,
-          color: (parts[6] && parts[6].startsWith('#')) ? parts[6] : undefined,
-        };
-        newChemicals.push(newChem);
-      } else {
-        failedCount++;
-      }
+      const p = line.split(';').map(x => x.trim());
+      if (p.length >= 6) newChems.push({ name: p[0], activeIngredient: p[1], usedFor: p[2], application: p[3], toxicologicalInfo: p[4], personalProtection: p[5], color: (p[6]?.startsWith('#')) ? p[6] : undefined });
     });
-
-    if (newChemicals.length > 0) {
-      onBulkAdd(newChemicals);
-    }
-
-    let statusMessage = '';
-    if (newChemicals.length > 0) {
-      statusMessage += t('chemicalManager.importSuccess', newChemicals.length) + ' ';
-    }
-    if (failedCount > 0) {
-      statusMessage += t('chemicalManager.importSkipped', failedCount);
-    }
-    
-    setImportStatus({ message: statusMessage, type: newChemicals.length > 0 ? 'success' : 'error' });
-    setImportText('');
+    if (newChems.length > 0) onBulkAdd(newChems);
+    setImportStatus({ message: t('chemicalManager.importSuccess', newChems.length), type: 'success' }); setImportText('');
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-
-    setIsExtracting(true);
-    setExtractionStatus(null);
-
+    setIsExtracting(true); setExtractionStatus(null); setExtractedChemicalsList([]);
     const reader = new FileReader();
     reader.onload = async (e) => {
       try {
-        const base64String = (e.target?.result as string).split(',')[1];
-        if (!base64String) {
-          throw new Error(t('errors.fileReadError'));
-        }
-        
-        const extractedData = await extractChemicalInfoFromPdf(base64String);
-        
-        setName(extractedData.name);
-        setActiveIngredient(extractedData.activeIngredient);
-        setUsedFor(extractedData.usedFor);
-        setApplication(extractedData.application);
-        setToxicologicalInfo(extractedData.toxicologicalInfo || '');
-        setPersonalProtection(extractedData.personalProtection || '');
-        setExtractionStatus({ message: t('chemicalManager.extractionSuccess'), type: 'success' });
-
-      } catch (err: any) {
-        setExtractionStatus({ message: err.message || t('errors.pdfExtractionFailed'), type: 'error' });
-      } finally {
-        setIsExtracting(false);
-        if(fileInputRef.current) {
-          fileInputRef.current.value = "";
-        }
-      }
+        const base64 = (e.target?.result as string).split(',')[1];
+        const data = await extractChemicalInfoFromPdf(base64);
+        setExtractedChemicalsList(data);
+        if (data.length === 1) {
+            const c = data[0]; setName(c.name); setActiveIngredient(c.activeIngredient); setUsedFor(c.usedFor); setApplication(c.application); setToxicologicalInfo(c.toxicologicalInfo || ''); setPersonalProtection(c.personalProtection || ''); setPpeList((c.ppeList || []));
+            setExtractionStatus({ message: t('chemicalManager.extractionSuccess'), type: 'success' });
+        } else setExtractionStatus({ message: `Identified ${data.length} products.`, type: 'success' });
+      } catch (err: any) { setExtractionStatus({ message: err.message || t('errors.pdfExtractionFailed'), type: 'error' }); } finally { setIsExtracting(false); }
     };
-    reader.onerror = () => {
-      setExtractionStatus({ message: t('errors.fileReadError'), type: 'error' });
-      setIsExtracting(false);
-      if(fileInputRef.current) {
-        fileInputRef.current.value = "";
-      }
-    };
-    reader.readAsDataURL(file);
-  };
-  
-  const handleImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-            setImage(e.target?.result as string);
-        };
-        reader.readAsDataURL(file);
-    }
+    reader.readAsDataURL(file); event.target.value = ''; 
   };
 
-  const filteredChemicals = chemicals.filter(chem =>
-    (chem.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (chem.activeIngredient || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (chem.usedFor || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const uniqueKeywords = useMemo(() => {
+    const kws = new Set<string>(); chemicals.forEach(c => c.usedFor.split(',').forEach(k => { const t = k.trim().toLowerCase(); if (t) kws.add(t); })); return Array.from(kws).sort();
+  }, [chemicals]);
+
+  const filteredChemicals = useMemo(() => {
+    return chemicals.filter(chem => {
+      const content = (chem.name + (chem.activeIngredient || '') + chem.usedFor).toLowerCase();
+      if (searchTerm && !content.includes(searchTerm.toLowerCase())) return false;
+      if (activeSafetyFilter !== 'all' && getSafetyLevel(chem) !== activeSafetyFilter) return false;
+      if (activePpeFilters.length > 0 && !(activePpeFilters.every(p => (chem.ppeList || []).includes(p)))) return false;
+      if (activeKeywordFilter && !(chem.usedFor.split(',').map(k => k.trim().toLowerCase()).includes(activeKeywordFilter.toLowerCase()))) return false;
+      return true;
+    });
+  }, [chemicals, searchTerm, activeSafetyFilter, activePpeFilters, activeKeywordFilter]);
 
   if (!isOpen) return null;
 
   return (
-    <>
-      <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex justify-center items-center p-4" onClick={onClose}>
-        <div className="bg-white rounded-lg shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col dark:bg-gray-800" onClick={e => e.stopPropagation()}>
-          <div className="flex justify-between items-center p-5 border-b dark:border-gray-700">
-            <h2 className="text-2xl font-bold text-gray-800 dark:text-gray-100">{t('chemicalManager.title')}</h2>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300">
-              <i className="fas fa-times text-2xl"></i>
-            </button>
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-[100] flex justify-center items-center p-4 transition-all" onClick={onClose}>
+      <div className="bg-slate-50 dark:bg-slate-950 rounded-[2.5rem] shadow-2xl w-full max-w-6xl max-h-[92vh] flex flex-col animate-fade-in-up overflow-hidden border border-slate-200 dark:border-slate-800" onClick={e => e.stopPropagation()}>
+        <div className="flex justify-between items-center p-8 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800">
+          <div>
+            <h2 className="text-2xl font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">{t('chemicalManager.title')}</h2>
+            <p className="text-xs text-slate-500 font-bold uppercase tracking-widest mt-1">Chemical Database Management</p>
           </div>
-          
-          <div className="flex-grow overflow-y-auto p-5 md:flex md:gap-6">
-            <div className="md:w-1/3 mb-6 md:mb-0">
-              <div className="flex border-b border-gray-200 dark:border-gray-600 mb-4">
-                <button
-                  onClick={() => setView('form')}
-                  className={`py-2 px-4 font-semibold text-sm transition-colors ${view === 'form' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-                >
-                  {editingId ? t('chemicalManager.editChemicalTab') : t('chemicalManager.addSingleTab')}
-                </button>
-                <button
-                  onClick={() => setView('import')}
-                  className={`py-2 px-4 font-semibold text-sm transition-colors ${view === 'import' ? 'border-b-2 border-blue-600 text-blue-600 dark:text-blue-400' : 'text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200'}`}
-                >
-                  {t('chemicalManager.bulkImportTab')}
-                </button>
-              </div>
-              
-              {view === 'form' && (
-                <>
-                  <h3 className="text-xl font-semibold mb-4 text-gray-700 dark:text-gray-200">{editingId ? t('chemicalManager.editChemicalTab') : t('chemicalManager.addFormTitle')}</h3>
-                  
-                  <div className="space-y-4">
-                    {!editingId && (
-                      <div className="p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-600">
-                        <input type="file" accept=".pdf" onChange={handleFileChange} ref={fileInputRef} className="hidden" id="pdf-upload" disabled={isExtracting} />
-                        <label
-                          htmlFor="pdf-upload"
-                          className={`w-full text-center block font-bold py-2 px-4 rounded-md shadow-sm transition-all cursor-pointer ${isExtracting ? 'bg-gray-400 text-gray-800 cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-700 text-white transform hover:scale-105'}`}
-                        >
-                          {isExtracting ? (
-                            <><i className="fas fa-spinner fa-spin me-2"></i>{t('chemicalManager.extractingButton')}</>
-                          ) : (
-                            <><i className="fas fa-file-pdf me-2"></i>{t('chemicalManager.extractFromPdfButton')}</>
-                          )}
-                        </label>
-                        {extractionStatus && (
-                          <p className={`text-xs mt-2 text-center ${
-                            extractionStatus.type === 'success' 
-                              ? 'text-green-600 dark:text-green-400' 
-                              : 'text-red-500 dark:text-red-400'
-                          }`}>
-                            {extractionStatus.message}
-                          </p>
-                        )}
-                      </div>
-                    )}
-
-                    <form onSubmit={handleSubmit} className="space-y-4">
-                       <div>
-                          <label className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.imageLabel')}</label>
-                          <div className="mt-1 flex items-center gap-4">
-                              <span className="inline-block h-20 w-20 rounded-md overflow-hidden bg-gray-100 dark:bg-gray-700">
-                                  {image ? (
-                                      <img src={image} alt="Chemical Preview" className="h-full w-full object-cover" />
-                                  ) : (
-                                      <div className="h-full w-full flex items-center justify-center">
-                                          <i className="fas fa-camera text-3xl text-gray-400"></i>
-                                      </div>
-                                  )}
-                              </span>
-                              <input type="file" id="image-upload" className="hidden" accept="image/*" onChange={handleImageUpload} />
-                              <div className="flex flex-col gap-2">
-                                  <label htmlFor="image-upload" className="cursor-pointer bg-white dark:bg-gray-700 py-2 px-3 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-sm leading-4 font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600">
-                                      <span>{t('chemicalManager.uploadImageButton')}</span>
-                                  </label>
-                                  {image && (
-                                      <button type="button" onClick={() => setImage(null)} className="text-red-600 hover:text-red-800 text-sm font-medium">
-                                          {t('chemicalManager.removeImageButton')}
-                                      </button>
-                                  )}
-                              </div>
-                          </div>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <div className="flex-grow">
-                          <label htmlFor="chem-name" className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.nameLabel')}</label>
-                          <input id="chem-name" type="text" value={name} onChange={e => setName(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" required />
-                        </div>
-                        <div>
-                          <label htmlFor="chem-color" className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.colorLabel')}</label>
-                          <input id="chem-color" type="color" value={color} onChange={e => setColor(e.target.value)} className="mt-1 block w-12 h-9 p-1 border border-gray-300 rounded-md shadow-sm cursor-pointer dark:bg-gray-700 dark:border-gray-600" title="Select a color"/>
-                        </div>
-                      </div>
-                      <div>
-                        <label htmlFor="chem-ingredient" className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.activeIngredientLabel')}</label>
-                        <input id="chem-ingredient" type="text" value={activeIngredient} onChange={e => setActiveIngredient(e.target.value)} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" />
-                      </div>
-                      <div>
-                        <label htmlFor="chem-used-for" className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.usedForLabel')}</label>
-                        <input id="chem-used-for" type="text" value={usedFor} onChange={e => setUsedFor(e.target.value)} placeholder={t('chemicalManager.usedForPlaceholder')} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" required />
-                        <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{t('chemicalManager.usedForHelpText')}</p>
-                      </div>
-                      <div>
-                        <label htmlFor="chem-application" className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.applicationLabel')}</label>
-                        <textarea id="chem-application" value={application} onChange={e => setApplication(e.target.value)} rows={3} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" required></textarea>
-                      </div>
-                      <div>
-                        <label htmlFor="chem-toxicology" className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.toxicologicalInfoLabel')}</label>
-                        <textarea id="chem-toxicology" value={toxicologicalInfo} onChange={e => setToxicologicalInfo(e.target.value)} rows={3} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"></textarea>
-                      </div>
-                      <div>
-                        <label htmlFor="chem-protection" className="block text-sm font-medium text-gray-600 dark:text-gray-300">{t('chemicalManager.personalProtectionLabel')}</label>
-                        <textarea id="chem-protection" value={personalProtection} onChange={e => setPersonalProtection(e.target.value)} rows={3} className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100"></textarea>
-                      </div>
-                      <div className="flex items-center gap-4">
-                        <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-md shadow-sm transition-transform transform hover:scale-105">
-                          {editingId ? t('chemicalManager.updateButton') : t('chemicalManager.saveButton')}
-                        </button>
-                        {editingId && <button type="button" onClick={resetForm} className="text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100">{t('chemicalManager.cancelButton')}</button>}
-                        {!editingId && <button type="button" onClick={resetForm} className="text-gray-600 hover:text-gray-900 dark:text-gray-300 dark:hover:text-gray-100">{t('chemicalManager.resetButton')}</button>}
-                      </div>
-                    </form>
-                  </div>
-                </>
-              )}
-
-              {view === 'import' && (
-                <div className="space-y-4">
-                  <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-200">{t('chemicalManager.bulkImportTitle')}</h3>
-                  <div>
-                      <p className="text-sm text-gray-600 dark:text-gray-300 mb-2">{t('chemicalManager.bulkImportInstruction1')}</p>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mb-2">{t('chemicalManager.bulkImportInstruction2')} <br />
-                          <code className="bg-gray-200 dark:bg-gray-600 px-1 rounded">{t('chemicalManager.bulkImportFormat')}</code>
-                      </p>
-                      <textarea
-                          value={importText}
-                          onChange={e => setImportText(e.target.value)}
-                          rows={10}
-                          className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 font-mono text-sm"
-                          placeholder={t('chemicalManager.bulkImportPlaceholder')}
-                      />
-                  </div>
-                  <button onClick={handleBulkImport} className="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-4 rounded-md shadow-sm transition-transform transform hover:scale-105">
-                      <i className="fas fa-file-import me-2"></i> {t('chemicalManager.importButton')}
-                  </button>
-                  {importStatus && (
-                      <p className={`text-sm p-3 rounded-md ${importStatus.type === 'success' ? 'bg-green-100 text-green-800 dark:bg-green-900/50 dark:text-green-300' : 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300'}`}>
-                          {importStatus.message}
-                      </p>
-                  )}
-                </div>
-              )}
+          <button onClick={onClose} className="w-10 h-10 flex items-center justify-center rounded-xl bg-slate-50 dark:bg-slate-800 text-slate-400 hover:text-slate-600 transition-all"><i className="fas fa-times text-xl"></i></button>
+        </div>
+        
+        <div className="flex-grow overflow-hidden lg:flex">
+          <div className="lg:w-5/12 border-r border-slate-200 dark:border-slate-800 p-8 overflow-y-auto bg-white dark:bg-slate-900/50">
+            <div className="flex gap-2 mb-8 bg-slate-100 dark:bg-slate-800 p-1.5 rounded-2xl">
+              <button onClick={() => setView('form')} className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all ${view === 'form' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{editingId ? t('chemicalManager.editChemicalTab') : t('chemicalManager.addSingleTab')}</button>
+              <button onClick={() => setView('import')} className={`flex-1 py-3 px-4 rounded-xl text-xs font-bold transition-all ${view === 'import' ? 'bg-white dark:bg-slate-700 text-blue-600 dark:text-blue-400 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>{t('chemicalManager.bulkImportTab')}</button>
             </div>
             
-            <div className="md:w-2/3">
-              <div className="flex flex-col sm:flex-row justify-between sm:items-center gap-4 mb-4">
-                  <h3 className="text-xl font-semibold text-gray-700 dark:text-gray-200">{t('chemicalManager.chemicalListTitle')}</h3>
-                  {chemicals.length > 0 && (
-                      <div className="flex items-center gap-2">
-                          <input type="text" value={pdfFilename} onChange={(e) => setPdfFilename(e.target.value)} className="px-2 py-1 border border-gray-300 rounded-md shadow-sm sm:text-sm text-gray-900 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 w-36" aria-label="PDF Filename for chemicals" />
-                          <span className="text-gray-500 dark:text-gray-400 text-sm">.pdf</span>
-                          <button onClick={triggerPdfExportConfirmation} className="bg-green-600 hover:bg-green-700 text-white font-semibold py-1 px-3 rounded-full text-xs transition-colors whitespace-nowrap" aria-label="Export chemical list to PDF">
-                              <i className="fas fa-file-pdf me-2"></i>{t('chemicalManager.exportButton')}
-                          </button>
-                      </div>
-                  )}
-              </div>
-              {chemicals.length > 0 && (
-                <div className="mb-4 relative">
-                  <span className="absolute inset-y-0 start-0 flex items-center ps-3">
-                    <i className="fas fa-search text-gray-400"></i>
-                  </span>
-                  <input type="text" placeholder={t('chemicalManager.searchPlaceholder')} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full ps-10 pe-4 py-2 border border-gray-300 rounded-full shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100" aria-label="Search chemicals"/>
+            {view === 'form' ? (
+              <div className="space-y-6 animate-fade-in">
+                <div className="bg-blue-50 dark:bg-blue-900/20 p-6 rounded-2xl border border-blue-100 dark:border-blue-800">
+                    <div className="flex items-center gap-3 mb-4">
+                        <i className="fas fa-wand-magic-sparkles text-blue-600"></i>
+                        <span className="text-[10px] font-bold text-blue-600 dark:text-blue-400 uppercase tracking-widest">AI Extraction Engine</span>
+                    </div>
+                    <input type="file" id="pdf-extraction-mgr" className="hidden" accept=".pdf" onChange={handleFileChange} />
+                    <label htmlFor="pdf-extraction-mgr" className={`w-full flex items-center justify-center gap-3 py-3.5 px-6 rounded-xl font-bold text-xs transition-all cursor-pointer shadow-lg shadow-blue-500/20 ${isExtracting ? 'bg-slate-200 text-slate-400' : 'bg-blue-600 text-white hover:bg-blue-700'}`}>
+                        {isExtracting ? <i className="fas fa-circle-notch fa-spin"></i> : <i className="fas fa-file-pdf"></i>}
+                        {isExtracting ? 'ANALYZING DOCUMENT...' : t('chemicalManager.extractFromPdfButton')}
+                    </label>
+                    {extractionStatus && (
+                        <div className={`mt-4 p-3 rounded-xl border text-xs font-medium ${extractionStatus.type === 'success' ? 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-100 dark:border-emerald-800 text-emerald-600' : 'bg-red-50 dark:bg-red-900/20 border-red-100 dark:border-red-800 text-red-600'}`}>
+                            {extractionStatus.message}
+                            {extractedChemicalsList.length > 1 && <button onClick={() => { onBulkAdd(extractedChemicalsList); setExtractedChemicalsList([]); }} className="mt-3 w-full bg-emerald-600 text-white py-2 rounded-lg font-bold">Import All Findings</button>}
+                        </div>
+                    )}
                 </div>
-              )}
-               <div className="border rounded-lg overflow-hidden max-h-[55vh] overflow-y-auto dark:border-gray-700">
-                  {chemicals.length === 0 ? (
-                      <p className="text-center text-gray-500 dark:text-gray-400 p-6">{t('chemicalManager.noChemicals')}</p>
-                  ) : filteredChemicals.length === 0 ? (
-                      <p className="text-center text-gray-500 dark:text-gray-400 p-6">{t('chemicalManager.noSearchResults')}</p>
-                  ) : (
-                      <ul className="divide-y divide-gray-200 dark:divide-gray-600">
-                          {filteredChemicals.map(chem => (
-                              <li key={chem.id} className="p-4 bg-white dark:bg-gray-800 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                  <div className="flex justify-between items-start gap-4">
-                                      <div className="flex-grow flex items-start gap-4">
-                                        <div className="flex-shrink-0 h-24 w-24 bg-gray-200 dark:bg-gray-700 rounded-md flex items-center justify-center">
-                                            {chem.image ? (
-                                                <img src={chem.image} alt={chem.name} className="h-full w-full object-contain rounded-md" />
-                                            ) : (
-                                                <i className="fas fa-flask text-4xl text-gray-400"></i>
-                                            )}
-                                        </div>
-                                        <div className="flex-grow space-y-3">
-                                            <h4 className="font-bold text-lg text-gray-800 dark:text-gray-100 flex items-center gap-2">
-                                              <span className="w-4 h-4 rounded-full inline-block border dark:border-gray-600 flex-shrink-0" style={{ backgroundColor: chem.color || '#cccccc' }}></span>
-                                              <span>{chem.name}</span>
-                                            </h4>
-                                            <div>
-                                                <p className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                    <i className="fas fa-atom w-3 text-center text-blue-500"></i>
-                                                    <span>{t('chemicalManager.activeIngredientHeader')}</span>
-                                                </p>
-                                                <p className="text-sm text-gray-700 dark:text-gray-300 ps-5">{chem.activeIngredient || t('na')}</p>
-                                            </div>
-                                            <div>
-                                                <p className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                    <i className="fas fa-bullseye w-3 text-center text-green-500"></i>
-                                                    <span>{t('chemicalManager.usedForHeader')}</span>
-                                                </p>
-                                                <div className="flex flex-wrap gap-2 mt-1 ps-5">
-                                                    {(chem.usedFor || '').split(',').map(keyword => keyword.trim()).filter(Boolean).map((keyword, index) => (
-                                                        <span key={index} className="px-2 py-1 bg-teal-100 text-teal-800 text-xs font-medium rounded-full dark:bg-teal-900/70 dark:text-teal-200">{keyword}</span>
-                                                    ))}
-                                                </div>
-                                            </div>
-                                            <div>
-                                                <p className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                   <i className="fas fa-info-circle w-3 text-center text-yellow-500"></i>
-                                                   <span>{t('chemicalManager.applicationHeader')}</span>
-                                                </p>
-                                                <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 whitespace-pre-wrap ps-5">{chem.application}</p>
-                                            </div>
-                                            {chem.toxicologicalInfo && (
-                                              <div>
-                                                  <p className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                    <i className="fas fa-biohazard w-3 text-center text-orange-500"></i>
-                                                    <span>{t('chemicalManager.toxicologicalInfoHeader')}</span>
-                                                  </p>
-                                                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 whitespace-pre-wrap ps-5">{chem.toxicologicalInfo}</p>
-                                              </div>
-                                            )}
-                                            {chem.personalProtection && (
-                                              <div>
-                                                  <p className="flex items-center gap-2 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-                                                    <i className="fas fa-hard-hat w-3 text-center text-red-500"></i>
-                                                    <span>{t('chemicalManager.personalProtectionHeader')}</span>
-                                                  </p>
-                                                  <p className="text-sm text-gray-700 dark:text-gray-300 mt-1 whitespace-pre-wrap ps-5">{chem.personalProtection}</p>
-                                              </div>
-                                            )}
-                                        </div>
-                                      </div>
-                                      <div className="flex flex-col sm:flex-row gap-y-2 sm:gap-x-2 flex-shrink-0">
-                                          <button onClick={() => handleEdit(chem)} className="p-2 text-blue-500 hover:text-blue-700 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-full" aria-label={`Edit ${chem.name}`}><i className="fas fa-pencil-alt"></i></button>
-                                          <button onClick={() => onDelete(chem.id)} className="p-2 text-red-500 hover:text-red-700 hover:bg-red-100 dark:hover:bg-red-900/50 rounded-full" aria-label={`Delete ${chem.name}`}><i className="fas fa-trash"></i></button>
-                                      </div>
-                                  </div>
-                              </li>
-                          ))}
-                      </ul>
-                  )}
-               </div>
+
+                <form onSubmit={handleSubmit} className="space-y-6">
+                    <div className="flex items-center gap-4 p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700">
+                        <div className="h-16 w-16 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700 flex items-center justify-center overflow-hidden flex-shrink-0 shadow-inner">
+                            {image ? <img src={image} className="w-full h-full object-cover" /> : <i className="fas fa-flask text-2xl text-slate-300"></i>}
+                        </div>
+                        <div className="flex-grow">
+                            <input type="file" id="img-mgr" className="hidden" accept="image/*" onChange={handleImageUpload} />
+                            <label htmlFor="img-mgr" className="cursor-pointer inline-flex bg-white dark:bg-slate-700 border border-slate-200 dark:border-slate-600 text-slate-700 dark:text-slate-200 px-4 py-2 rounded-lg text-xs font-bold hover:border-blue-500 transition-all shadow-sm">{t('chemicalManager.uploadImageButton')}</label>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+                        <div className="sm:col-span-3">
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('chemicalManager.nameLabel')}</label>
+                          <input type="text" value={name} onChange={e => setName(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm font-bold focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all" required />
+                        </div>
+                        <div>
+                          <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('chemicalManager.colorLabel')}</label>
+                          <input type="color" value={color} onChange={e => setColor(e.target.value)} className="w-full h-[46px] p-1 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl cursor-pointer"/>
+                        </div>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('chemicalManager.activeIngredientLabel')}</label>
+                      <input type="text" value={activeIngredient} onChange={e => setActiveIngredient(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm outline-none focus:border-blue-500 transition-all" />
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('chemicalManager.usedForLabel')}</label>
+                      <input type="text" value={usedFor} onChange={e => setUsedFor(e.target.value)} placeholder={t('chemicalManager.usedForPlaceholder')} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm outline-none focus:border-blue-500 transition-all" required />
+                      <p className="text-[10px] text-slate-400 mt-1.5 font-medium">{t('chemicalManager.usedForHelpText')}</p>
+                    </div>
+
+                    <div>
+                      <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 block">{t('chemicalManager.applicationLabel')}</label>
+                      <textarea value={application} onChange={e => setApplication(e.target.value)} rows={3} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 p-3 rounded-xl text-sm outline-none focus:border-blue-500 transition-all resize-none"></textarea>
+                    </div>
+
+                    <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl border border-slate-100 dark:border-slate-700">
+                        <label className="text-[10px] font-bold text-slate-900 dark:text-white uppercase tracking-widest mb-4 flex items-center gap-2">
+                            <i className="fas fa-shield-virus text-blue-500"></i> {t('chemicalManager.ppeChecklistLabel')}
+                        </label>
+                        <div className="grid grid-cols-2 gap-2">
+                            {PPE_OPTIONS.map(opt => (
+                                <button key={opt.id} type="button" onClick={() => setPpeList(prev => prev.includes(opt.id) ? prev.filter(x => x !== opt.id) : [...prev, opt.id])} className={`flex items-center gap-2.5 p-2 rounded-xl border text-left transition-all ${ppeList.includes(opt.id) ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-400' : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-500 hover:border-slate-300'}`}>
+                                    <i className={`fas ${opt.icon} text-[10px] w-4 text-center`}></i>
+                                    <span className="text-[10px] font-bold truncate">{t(opt.label)}</span>
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex gap-4 pt-4 sticky bottom-0 bg-white dark:bg-slate-900 py-4 border-t border-slate-100 dark:border-slate-800">
+                        <button type="button" onClick={resetForm} className="px-6 py-3 rounded-xl text-slate-500 hover:text-slate-900 font-bold text-xs uppercase tracking-widest transition-all">{t('chemicalManager.resetButton')}</button>
+                        <button type="submit" className="flex-grow bg-blue-600 hover:bg-blue-700 text-white font-bold py-3.5 px-8 rounded-xl text-xs uppercase tracking-widest shadow-lg shadow-blue-500/20 active:scale-95 transition-all">
+                            {editingId ? t('chemicalManager.updateButton') : t('chemicalManager.saveButton')}
+                        </button>
+                    </div>
+                </form>
+              </div>
+            ) : (
+              <div className="space-y-6 animate-fade-in">
+                <div className="bg-slate-50 dark:bg-slate-800 p-6 rounded-2xl border border-slate-200 dark:border-slate-700">
+                    <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">{t('chemicalManager.bulkImportTitle')}</h3>
+                    <p className="text-xs text-slate-500 leading-relaxed mb-4">{t('chemicalManager.bulkImportInstruction1')}</p>
+                    <div className="p-3 bg-slate-100 dark:bg-slate-900 rounded-lg text-[10px] text-slate-400 font-mono mb-4 italic">
+                        {t('chemicalManager.bulkImportFormat')}
+                    </div>
+                    <textarea value={importText} onChange={e => setImportText(e.target.value)} rows={12} className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl p-4 text-xs focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 outline-none transition-all shadow-inner" placeholder={t('chemicalManager.bulkImportPlaceholder')}></textarea>
+                    <button onClick={handleBulkImport} className="w-full mt-6 bg-blue-600 hover:bg-blue-700 text-white py-4 rounded-xl font-bold text-sm shadow-xl active:scale-95 transition-all">{t('chemicalManager.importButton')}</button>
+                    {importStatus && <div className={`mt-4 p-4 rounded-xl border text-xs font-bold ${importStatus.type === 'success' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' : 'bg-red-50 text-red-600 border-red-100'}`}>{importStatus.message}</div>}
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="lg:w-7/12 p-8 flex flex-col bg-slate-50/50 dark:bg-slate-950/50 overflow-hidden">
+            <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mb-8">
+                <div>
+                  <h3 className="text-xl font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">{t('chemicalManager.chemicalListTitle')}</h3>
+                  <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mt-1">Total Records: {filteredChemicals.length}</p>
+                </div>
+                <div className="flex gap-2">
+                    <button onClick={() => setShowFilters(!showFilters)} className={`px-4 py-2 rounded-xl text-xs font-bold border transition-all ${showFilters ? 'bg-blue-600 border-blue-600 text-white shadow-lg' : 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-blue-500'}`}>{t('chemicalManager.filters.title')}</button>
+                    <button onClick={() => exportChemicalsToPDF(chemicals, customHeader, pdfFilename, logo, language)} className="bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2 rounded-xl text-xs font-bold shadow-lg shadow-emerald-600/20 transform active:scale-95 transition-all flex items-center gap-2">
+                        <i className="fas fa-file-pdf text-[10px]"></i> PDF List
+                    </button>
+                </div>
+            </div>
+            
+            <div className="relative mb-6">
+                <input type="text" placeholder={t('chemicalManager.searchPlaceholder')} value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full ps-11 pe-6 py-3.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white font-semibold rounded-2xl focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 outline-none transition-all shadow-sm" />
+                <i className="fas fa-search absolute left-4 top-1/2 -translate-y-1/2 text-slate-300"></i>
+            </div>
+
+            {showFilters && (
+                <div className="mb-6 p-6 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm animate-fade-in space-y-6">
+                    <div className="flex justify-between items-center">
+                        <span className="text-xs font-extrabold text-slate-900 dark:text-white uppercase tracking-tight">Active Filters</span>
+                        <button onClick={resetFilters} className="text-[10px] font-bold text-red-500 hover:text-red-600 uppercase tracking-widest">{t('chemicalManager.filters.clearAll')}</button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">{t('chemicalManager.filters.safetyLevel')}</label>
+                            <div className="flex flex-wrap gap-1.5">
+                                {(['all', 'low', 'medium', 'high'] as const).map(lvl => (
+                                    <button key={lvl} onClick={() => setActiveSafetyFilter(lvl)} className={`px-3 py-1.5 rounded-lg text-[10px] font-bold border transition-all ${activeSafetyFilter === lvl ? 'bg-blue-600 border-blue-600 text-white' : 'bg-slate-50 dark:bg-slate-800 border-slate-100 dark:border-slate-700 text-slate-500'}`}>{lvl.toUpperCase()}</button>
+                                ))}
+                            </div>
+                        </div>
+                        <div className="space-y-3">
+                            <label className="text-[10px] font-bold text-slate-400 uppercase tracking-widest block">{t('chemicalManager.filters.usedFor')}</label>
+                            <select value={activeKeywordFilter} onChange={(e) => setActiveKeywordFilter(e.target.value)} className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 rounded-xl p-2.5 text-xs outline-none focus:border-blue-500 transition-all font-bold">
+                                <option value="">{t('chemicalManager.filters.selectKeyword')}</option>
+                                {uniqueKeywords.map(kw => <option key={kw} value={kw}>{kw.toUpperCase()}</option>)}
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            <div className="flex-grow overflow-y-auto space-y-4 pr-2 custom-scrollbar">
+                {filteredChemicals.length === 0 ? (
+                  <div className="flex flex-col items-center justify-center py-20 bg-white dark:bg-slate-900/50 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800">
+                    <i className="fas fa-flask-vial text-5xl text-slate-200 mb-4"></i>
+                    <p className="font-bold text-slate-400 uppercase tracking-widest text-xs">{t('chemicalManager.noSearchResults')}</p>
+                  </div>
+                ) : (
+                    filteredChemicals.map(chem => {
+                        const level = getSafetyLevel(chem);
+                        const colors = { 
+                            high: 'bg-red-500 dark:bg-red-600 text-white', 
+                            medium: 'bg-amber-400 text-slate-900', 
+                            low: 'bg-emerald-500 dark:bg-emerald-600 text-white' 
+                        };
+                        return (
+                        <div key={chem.id} className="bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 p-5 rounded-3xl shadow-sm hover:border-blue-500/50 transition-all group relative overflow-hidden flex flex-col sm:flex-row gap-6">
+                            <div className="absolute top-0 left-0 w-1.5 h-full" style={{ backgroundColor: chem.color }}></div>
+                            <div className="h-24 w-24 sm:h-28 sm:w-28 bg-slate-50 dark:bg-slate-800 rounded-2xl border border-slate-100 dark:border-slate-700 flex-shrink-0 relative group-hover:scale-105 transition-all duration-300 overflow-hidden shadow-inner">
+                                {chem.image ? <img src={chem.image} className="h-full w-full object-cover" /> : <i className="fas fa-flask text-3xl text-slate-200 absolute inset-0 m-auto h-fit w-fit"></i>}
+                                <div className={`absolute bottom-0 left-0 right-0 py-1 text-[8px] font-black text-center uppercase tracking-widest ${colors[level]}`}>{level} risk</div>
+                            </div>
+                            <div className="flex-grow min-w-0 flex flex-col justify-center">
+                                <div className="flex justify-between items-start mb-3">
+                                    <div className="min-w-0">
+                                        <h4 className="font-extrabold text-lg text-slate-900 dark:text-white uppercase tracking-tight truncate group-hover:text-blue-600 transition-colors">{chem.name}</h4>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider truncate mt-0.5">{chem.activeIngredient || 'Component details restricted'}</p>
+                                    </div>
+                                    <div className="flex gap-1.5 opacity-0 group-hover:opacity-100 transition-all">
+                                        <button onClick={() => handleEdit(chem)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 hover:bg-blue-100 transition-all shadow-sm"><i className="fas fa-edit text-xs"></i></button>
+                                        <button onClick={() => onDelete(chem.id)} className="w-8 h-8 flex items-center justify-center rounded-lg bg-red-50 dark:bg-red-900/30 text-red-500 hover:bg-red-100 transition-all shadow-sm"><i className="fas fa-trash-alt text-xs"></i></button>
+                                    </div>
+                                </div>
+                                <div className="flex flex-wrap gap-1.5 mb-4">
+                                    {(chem.ppeList || []).map(p => <div key={p} className="w-6 h-6 flex items-center justify-center rounded bg-slate-50 dark:bg-slate-800 text-slate-400 text-[10px] border border-slate-100 dark:border-slate-700" title={t(PPE_OPTIONS.find(o => o.id === p)?.label || p)}><i className={`fas ${PPE_OPTIONS.find(o => o.id === p)?.icon || 'fa-shield'}`}></i></div>)}
+                                </div>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {(chem.usedFor || '').split(',').map(k => k.trim()).filter(Boolean).slice(0, 4).map((k, i) => (
+                                      <span key={i} className="px-2 py-0.5 bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 text-[10px] font-bold uppercase rounded border border-blue-100 dark:border-blue-900/40">{k}</span>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                    )})
+                )}
             </div>
           </div>
         </div>
       </div>
-      
-      <ConfirmationDialog
-        isOpen={isPdfConfirmOpen}
-        onClose={() => setIsPdfConfirmOpen(false)}
-        onConfirm={handleConfirmAndExport}
-        title={t('chemicalManager.exportButton')}
-      >
-        <p className="text-gray-600 dark:text-gray-300">
-          {t('confirmationDialog.exportChemicalsMessage', `${pdfFilename}.pdf`)}
-        </p>
-      </ConfirmationDialog>
-    </>
+    </div>
   );
 };
 

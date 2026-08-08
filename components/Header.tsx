@@ -1,3 +1,4 @@
+
 import React from 'react';
 import ThemeToggle from './ThemeToggle';
 import { t, Language } from '../i18n';
@@ -7,31 +8,55 @@ interface HeaderProps {
     onToggleTheme: () => void;
     language: Language;
     onLanguageChange: (lang: Language) => void;
+    syncStatus: 'none' | 'connected' | 'syncing';
+    onOpenSync: () => void;
 }
 
-const Header: React.FC<HeaderProps> = ({ theme, onToggleTheme, language, onLanguageChange }) => {
+const Header: React.FC<HeaderProps> = ({ theme, onToggleTheme, language, onLanguageChange, syncStatus, onOpenSync }) => {
   return (
-    <header className="bg-white shadow-md dark:bg-gray-800 relative">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8 py-6 text-center">
-        <div className="flex items-center justify-center gap-4">
-          <i className="fas fa-clipboard-list text-4xl text-blue-600"></i>
-          <h1 className="text-3xl sm:text-4xl font-bold text-gray-800 dark:text-gray-100 tracking-tight">
-            {t('header.title')}
-          </h1>
+    <header className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800 sticky top-0 z-50">
+      <div className="container mx-auto px-6 py-4 flex flex-col md:flex-row justify-between items-center gap-4">
+        <div className="flex items-center gap-4">
+          <div className="bg-blue-600 text-white p-2.5 rounded-xl">
+            <i className="fas fa-broom text-xl"></i>
+          </div>
+          <div>
+            <h1 className="text-xl font-extrabold tracking-tight text-slate-900 dark:text-white uppercase leading-none">
+              STEWARD
+            </h1>
+            <p className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mt-1">
+              Hygiene & Sanitation
+            </p>
+          </div>
         </div>
-        <p className="mt-3 text-lg text-gray-600 dark:text-gray-400 max-w-3xl mx-auto">
-          {t('header.description')}
-        </p>
-      </div>
-      <div className="absolute top-5 start-5 flex items-center gap-2">
-        <ThemeToggle theme={theme} onToggle={onToggleTheme} />
-        <button
-          onClick={() => onLanguageChange(language === 'en' ? 'ar' : 'en')}
-          className="p-2 rounded-full text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 dark:focus:ring-offset-gray-800 transition-colors duration-200 font-bold"
-          aria-label={`Switch to ${language === 'en' ? 'Arabic' : 'English'}`}
-        >
-          {t('header.language')}
-        </button>
+
+        <div className="flex items-center gap-4">
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
+                <ThemeToggle theme={theme} onToggle={onToggleTheme} />
+                <button
+                    onClick={() => onLanguageChange(language === 'en' ? 'ar' : 'en')}
+                    className="px-4 py-2 text-xs font-bold text-slate-600 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors uppercase"
+                >
+                    {language === 'en' ? 'Arabic' : 'English'}
+                </button>
+            </div>
+
+            <button
+                onClick={onOpenSync}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl border transition-all text-xs font-bold ${
+                    syncStatus === 'none' 
+                    ? 'bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:border-blue-500' 
+                    : 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-600 dark:text-blue-400'
+                }`}
+                title={t('sync.title')}
+            >
+                <i className={`fas fa-cloud-arrow-up ${syncStatus === 'syncing' ? 'animate-bounce' : ''}`}></i>
+                <span className="hidden sm:inline">Cloud Sync</span>
+                {syncStatus !== 'none' && (
+                    <span className={`w-2 h-2 rounded-full ${syncStatus === 'syncing' ? 'bg-amber-400' : 'bg-emerald-500'}`}></span>
+                )}
+            </button>
+        </div>
       </div>
     </header>
   );

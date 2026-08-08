@@ -3,10 +3,19 @@ import React from 'react';
 
 const LoadingSpinner: React.FC = () => {
   return (
-    <div className="flex flex-col items-center justify-center space-y-4 p-8 bg-white/50 dark:bg-gray-900/50 rounded-lg">
-        <div className="w-16 h-16 border-4 border-blue-500 border-dashed rounded-full animate-spin"></div>
-        <p className="text-lg font-semibold text-gray-700 dark:text-gray-200">Generating your comprehensive schedule...</p>
-        <p className="text-sm text-gray-500 dark:text-gray-400">This may take a moment.</p>
+    <div className="flex flex-col items-center justify-center space-y-6 py-24 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-sm animate-fade-in">
+        <div className="relative w-16 h-16">
+            <div className="absolute inset-0 border-4 border-slate-100 dark:border-slate-800 rounded-full"></div>
+            <div className="absolute inset-0 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
+        </div>
+        <div className="text-center space-y-1">
+            <p className="text-lg font-bold text-slate-900 dark:text-white">
+                Preparing cleaning protocols...
+            </p>
+            <p className="text-sm text-slate-500 dark:text-slate-400">
+                AI matching engine in progress
+            </p>
+        </div>
     </div>
   );
 };

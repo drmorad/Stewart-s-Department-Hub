@@ -1,7 +1,9 @@
 export interface TaskDetail {
+  id: string; // Unique identifier for the task
   task: string;
   chemicalId: string | null;
   notes?: string;
+  prerequisites?: string[]; // Array of Task IDs that must be completed first
 }
 
 export interface ScheduleItem {
@@ -42,6 +44,7 @@ export interface Chemical {
   image?: string; // Optional base64 encoded image string
   toxicologicalInfo?: string;
   personalProtection?: string;
+  ppeList?: string[]; // Array of selected PPE items keys
 }
 
 export type ActiveFilters = {

@@ -1,3 +1,4 @@
+
 export type Language = 'en' | 'ar';
 
 const translations = {
@@ -22,10 +23,32 @@ const translations = {
       weekly: "Weekly",
       monthly: "Monthly",
     },
+    sync: {
+        title: "Cloud Sync",
+        connectDrive: "Connect to Google Drive",
+        connectDescription: "Keep your cleaning schedule, chemicals, and checklist progress safely backed up to your personal Google Drive account.",
+        authorizeButton: "Sign in with Google",
+        status: "Sync Status",
+        connected: "Connected",
+        syncing: "Syncing...",
+        lastSync: "Last Synced",
+        neverSynced: "Never synced",
+        uploadNow: "Upload Now",
+        downloadNow: "Cloud Restore",
+        disconnect: "Disconnect Drive",
+        statusConnected: "Cloud Sync Active",
+        noDataOnCloud: "No backup data found on your Google Drive.",
+        dataFoundMessage: "Backup data found on Google Drive! Do you want to load it and replace your current local data?"
+    },
     pdfControls: {
       filenameLabel: "PDF Filename",
+      orientationLabel: "Page Orientation",
+      orientationPortrait: "Portrait",
+      orientationLandscape: "Landscape",
+      includeNotesLabel: "Include Task Notes",
+      includeChemicalsLabel: "Include Chemical Summary",
       pdfExportFilters: {
-        label: "Include in PDF:"
+        label: "Frequencies to Include:"
       },
       pdfExportScope: {
         label: "Export Scope:",
@@ -51,9 +74,11 @@ const translations = {
       resetWeekly: "Reset Weekly",
       resetMonthly: "Reset Monthly",
       notesPlaceholder: "Add special instructions...",
+      markComplete: "Mark Complete",
+      markIncomplete: "Mark Incomplete",
     },
     chemicalManager: {
-      title: "Manage Cleaning Chemicals",
+      title: "Manage Chemicals",
       addSingleTab: "Add Single",
       editChemicalTab: "Edit Chemical",
       bulkImportTab: "Bulk Import",
@@ -72,17 +97,20 @@ const translations = {
       usedForHelpText: "Comma-separated keywords for matching with equipment.",
       applicationLabel: "Application Instructions",
       toxicologicalInfoLabel: "Toxicological Information (Health Effects)",
-      personalProtectionLabel: "Exposure Control / Personal Protection (PPE)",
+      personalProtectionLabel: "Additional Safety Instructions",
+      ppeChecklistLabel: "Required Personal Protective Equipment (PPE)",
       saveButton: "Save Chemical",
       updateButton: "Update Chemical",
       cancelButton: "Cancel",
       resetButton: "Reset",
       bulkImportTitle: "Bulk Import Chemicals",
-      bulkImportInstruction1: "Paste a list, one chemical per line. Separate details with a semicolon (;).",
+      bulkImportInstruction1: "Download the template, fill it out, and upload it back; or paste your data here. (Semicolon separated)",
       bulkImportInstruction2: "Format (Color is optional, at the end):",
       bulkImportFormat: "Name; Ingredient; Keywords; Application; Toxicology; PPE; Color",
       bulkImportPlaceholder: "Degreaser; NaOH; oven,grill; Spray on...; Causes burns; Wear gloves, goggles; #ff8c00",
       importButton: "Import Chemicals",
+      downloadTemplate: "Download CSV Template",
+      uploadCsvButton: "Upload CSV",
       chemicalListTitle: "Chemical List",
       exportButton: "Export",
       searchPlaceholder: "Search by name, ingredient, or keyword...",
@@ -97,6 +125,20 @@ const translations = {
       importSuccess: (count: number) => `Successfully imported ${count} chemical(s).`,
       importSkipped: (count: number) => `${count} line(s) were skipped due to incorrect formatting.`,
       importEmpty: "Textarea is empty.",
+      filters: {
+        title: "Filters",
+        showFilters: "Show Filters",
+        hideFilters: "Hide Filters",
+        clearAll: "Clear All",
+        safetyLevel: "Safety Rating",
+        safetyAll: "All Ratings",
+        safetyHigh: "High Risk",
+        safetyMedium: "Medium Risk",
+        safetyLow: "Low Risk",
+        ppe: "PPE Requirements",
+        usedFor: "Used For (Keyword)",
+        selectKeyword: "Select usage..."
+      }
     },
     chemicalSelector: {
       selectChemical: "Select Chemical",
@@ -106,7 +148,7 @@ const translations = {
     },
     confirmationDialog: {
       exportTitle: "Confirm PDF Export",
-      exportChecklistTitle: "Confirm Checklist PDF Export", // NEW
+      exportChecklistTitle: "Confirm Checklist PDF Export",
       exportChemicalTitle: "Confirm Chemical List Export",
       duplicateScheduleTitle: "Confirm Schedule Duplication",
       exportScheduleMessage: (filename: string) => `You are about to export the schedule as ${filename}.`,
@@ -127,6 +169,32 @@ const translations = {
       scheduleGenerationFailed: "Failed to generate the cleaning schedule. Please check your API key and try again.",
       pdfExtractionFailed: "Failed to extract chemical data from the PDF.",
       fileReadError: "Could not read the file.",
+      driveConnectFailed: "Failed to connect to Google Drive. Check your popup blocker.",
+      cloudDownloadFailed: "Could not download data from Google Drive."
+    },
+    ppe: {
+      required: "Safety Alert",
+      clickToView: "Click to view PPE requirements",
+      title: "Required Personal Protective Equipment",
+      items: {
+        gloves: "Gloves",
+        goggles: "Safety Goggles",
+        faceShield: "Face Shield",
+        mask: "Mask",
+        respirator: "Respirator",
+        apron: "Apron",
+        safetyShoes: "Safety Shoes",
+        rubberBoots: "Rubber Boots"
+      }
+    },
+    dependencies: {
+        modalTitle: "Manage Task Dependencies",
+        instruction: "Select tasks that must be completed BEFORE the current task.",
+        searchPlaceholder: "Search prerequisites...",
+        saveButton: "Save Dependencies",
+        manage: "Link Prerequisites",
+        requires: "Requires",
+        locked: "Blocked by",
     },
     na: "N/A"
   },
@@ -151,10 +219,32 @@ const translations = {
       weekly: "أسبوعي",
       monthly: "شهري",
     },
+    sync: {
+        title: "مزامنة السحابة",
+        connectDrive: "الاتصال بجوجل درايف",
+        connectDescription: "احتفظ بنسخة احتياطية من جدول التنظيف والمواد الكيميائية وتقدم قائمة التحقق بأمان في حسابك الشخصي على جوجل درايف.",
+        authorizeButton: "تسجيل الدخول باستخدام جوجل",
+        status: "حالة المزامنة",
+        connected: "متصل",
+        syncing: "جاري المزامنة...",
+        lastSync: "آخر مزامنة",
+        neverSynced: "لم تتم المزامنة أبدًا",
+        uploadNow: "رفع الآن",
+        downloadNow: "استعادة من السحابة",
+        disconnect: "قطع الاتصال",
+        statusConnected: "المزامنة السحابية نشطة",
+        noDataOnCloud: "لم يتم العثور على بيانات احتياطية في جوجل درايف الخاص بك.",
+        dataFoundMessage: "تم العثور على بيانات احتياطية في جوجل درايف! هل تريد تحميلها واستبدال بياناتك المحلية الحالية؟"
+    },
     pdfControls: {
       filenameLabel: "اسم ملف PDF",
+      orientationLabel: "اتجاه الصفحة",
+      orientationPortrait: "رأسي",
+      orientationLandscape: "أفقي",
+      includeNotesLabel: "تضمين ملاحظات المهام",
+      includeChemicalsLabel: "تضمين ملخص المواد الكيميائية",
       pdfExportFilters: {
-        label: "تضمين في PDF:"
+        label: "الترددات المطلوب تضمينها:"
       },
       pdfExportScope: {
         label: "نطاق التصدير:",
@@ -180,6 +270,8 @@ const translations = {
       resetWeekly: "إعادة تعيين الأسبوعية",
       resetMonthly: "إعادة تعيين الشهرية",
       notesPlaceholder: "أضف تعليمات خاصة...",
+      markComplete: "تحديد كمكتمل",
+      markIncomplete: "تحديد كغير مكتمل",
     },
     chemicalManager: {
       title: "إدارة مواد التنظيف الكيميائية",
@@ -201,17 +293,20 @@ const translations = {
       usedForHelpText: "كلمات مفتاحية مفصولة بفواصل للمطابقة مع المعدات.",
       applicationLabel: "تعليمات الاستخدام",
       toxicologicalInfoLabel: "المعلومات السمية (الآثار الصحية)",
-      personalProtectionLabel: "التحكم في التعرض / الحماية الشخصية (PPE)",
+      personalProtectionLabel: "تعليمات السلامة الإضافية",
+      ppeChecklistLabel: "معدات الحماية الشخصية المطلوبة (PPE)",
       saveButton: "حفظ المادة",
       updateButton: "تحديث المادة",
       cancelButton: "إلغاء",
       resetButton: "إعادة تعيين",
       bulkImportTitle: "استيراد جماعي للمواد الكيميائية",
-      bulkImportInstruction1: "الصق قائمة، مادة كيميائية واحدة في كل سطر. افصل التفاصيل بفاصلة منقوطة (;).",
+      bulkImportInstruction1: "قم بتنزيل القالب، واملأه، وأعد تحميله؛ أو الصق بياناتك هنا. (مفصولة بفاصلة منقوطة)",
       bulkImportInstruction2: "التنسيق (اللون اختياري، في النهاية):",
       bulkImportFormat: "الاسم; المكون; الكلمات المفتاحية; الاستخدام; السمية; الحماية; اللون",
       bulkImportPlaceholder: "مزيل شحوم; هيدروكسيد الصوديوم; فرن,شواية; رش على...; يسبب حروق; ارتد قفازات; #ff8c00",
       importButton: "استيراد المواد",
+      downloadTemplate: "تحميل قالب CSV",
+      uploadCsvButton: "تحميل CSV",
       chemicalListTitle: "قائمة المواد الكيميائية",
       exportButton: "تصدير",
       searchPlaceholder: "ابحث بالاسم، المكون، أو كلمة مفتاحية...",
@@ -226,6 +321,20 @@ const translations = {
       importSuccess: (count: number) => `تم استيراد ${count} مادة (مواد) بنجاح.`,
       importSkipped: (count: number) => `تم تخطي ${count} سطر (أسطر) بسبب التنسيق غير الصحيح.`,
       importEmpty: "مربع النص فارغ.",
+      filters: {
+        title: "الفلاتر",
+        showFilters: "إظهار الفلاتر",
+        hideFilters: "إخفاء الفلاتر",
+        clearAll: "مسح الكل",
+        safetyLevel: "تصنيف السلامة",
+        safetyAll: "جميع التصنيفات",
+        safetyHigh: "خطر مرتفع",
+        safetyMedium: "خطر متوسط",
+        safetyLow: "خطر منخفض",
+        ppe: "متطلبات الوقاية الشخصية",
+        usedFor: "تستخدم لـ (كلمة مفتاحية)",
+        selectKeyword: "اختر الاستخدام..."
+      }
     },
     chemicalSelector: {
       selectChemical: "اختر المادة الكيميائية",
@@ -235,7 +344,7 @@ const translations = {
     },
     confirmationDialog: {
       exportTitle: "تأكيد تصدير PDF",
-      exportChecklistTitle: "تأكيد تصدير قائمة التحقق PDF", // NEW
+      exportChecklistTitle: "تأكيد تصدير قائمة التحقق PDF",
       exportChemicalTitle: "تأكيد تصدير قائمة المواد الكيميائية",
       duplicateScheduleTitle: "تأكيد نسخ الجدول",
       exportScheduleMessage: (filename: string) => `أنت على وشك تصدير الجدول باسم ${filename}.`,
@@ -250,12 +359,38 @@ const translations = {
       confirm: "تأكيد وتصدير",
     },
     footer: {
-      poweredBy: "مدعوم بالذكاء الاصطناعي. تم إنشاؤه بواسطة مولد جدول التنظيف للإشراف الداخلي.",
+      poweredBy: "مدعوم بالذكاء الاصطناعي. تم إنشؤه بواسطة مولد جدول التنظيف للإشراف الداخلي.",
     },
     errors: {
       scheduleGenerationFailed: "فشل في إنشاء جدول التنظيف. يرجى التحقق من مفتاح API الخاص بك والمحاولة مرة أخرى.",
       pdfExtractionFailed: "فشل في استخراج بيانات المواد الكيميائية من ملف PDF.",
       fileReadError: "لا يمكن قراءة الملف.",
+      driveConnectFailed: "فشل الاتصال بجوجل درايف. تحقق من مانع المنبثقات.",
+      cloudDownloadFailed: "تعذر تنزيل البيانات من جوجل درايف."
+    },
+    ppe: {
+      required: "تنبيه سلامة",
+      clickToView: "انقر لعرض متطلبات الحماية",
+      title: "معدات الوقاية الشخصية المطلوبة",
+      items: {
+        gloves: "قفازات",
+        goggles: "نظارات واقية",
+        faceShield: "واقي الوجه",
+        mask: "قناع",
+        respirator: "جهاز تنفس",
+        apron: "مريلة",
+        safetyShoes: "أحذية أمان",
+        rubberBoots: "أحذية مطاطية"
+      }
+    },
+    dependencies: {
+        modalTitle: "إدارة تبعيات المهام",
+        instruction: "حدد المهام التي يجب إكمالها قبل المهمة الحالية.",
+        searchPlaceholder: "البحث عن المتطلبات الأساسية...",
+        saveButton: "حفظ التبعيات",
+        manage: "ربط المتطلبات الأساسية",
+        requires: "يتطلب",
+        locked: "محظور بواسطة",
     },
     na: "غير متاح"
   }
